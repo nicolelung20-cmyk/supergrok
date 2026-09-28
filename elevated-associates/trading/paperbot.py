@@ -12,7 +12,12 @@ Usage:
 
 Outputs (in --out, default ./paper_runs/<timestamp>/):
     ledger.jsonl   every fill, stop and kill-switch event
-    summary.json   equity, P&L, fees, win rate, max drawdown, per-strategy stats
+    summary.json   equity, P&L, fees, win rate, max drawdown, per-strategy stats, gate status
+
+Manual kill-switch: create a file named STOP in the run folder. The bot closes every
+position at the last quote, logs it, and exits.
+
+To mirror these paper trades into an Alpaca paper account, run alpaca_paper.py instead.
 """
 
 import argparse
@@ -47,13 +52,23 @@ class Tick:
 @dataclass
 class Config:
     starting_cash: float = 1000.0
-    taker_fee: float = 0.006          # Coinbase Advanced entry tier taker fee (0.60%)
+    taker_fee: float = 0.006          # crypto taker fee; Coinbase Advanced entry tier is 0.60%
+    stock_fee: float = 0.0            # US stocks/ETFs (commission-free brokers)
     slippage_bps: float = 2.0         # extra cost beyond the quoted bid/ask
-    risk_per_trade: float = 0.10      # fraction of equity allocated per position
+    # Risk policy (Linear ELE-39): <=5% per position, 3% daily loss halt, <=5 positions, no leverage.
+    risk_per_trade: float = 0.05      # fraction of equity allocated per position
     stop_loss: float = 0.02
     take_profit: float = 0.04
-    daily_kill_switch: float = 0.05   # pause new entries after -5% on the UTC day
-    max_positions: int = 3
+    daily_kill_switch: float = 0.03   # pause new entries after -3% on the UTC day
+    max_positions: int = 5
+    # Paper-to-live gate (CHARTER.md section 2 + Linear ELE-40). Human steps are tracked separately.
+    gate_min_days: float = 90.0
+    gate_min_trades: int = 30
+    gate_max_drawdown: float = 0.10
+
+    def fee(self, product):
+        """Crypto pairs look like BTC-USD or BTC/USD; anything else is treated as a stock/ETF."""
+        return self.taker_fee if ("-" in product or "/" in product) else self.stock_fee
 
 
 @dataclass
@@ -63,6 +78,7 @@ class Position:
     qty: float
     entry: float
     opened: float
+    fee_rate: float = 0.0
 
 
 # ---------------------------------------------------------------- strategies
@@ -150,6 +166,10 @@ class PaperBroker:
         self.day = None
         self.day_start_equity = cfg.starting_cash
         self.paused = False
+        self.halted = False
+        self.first_ts = None
+        self.last_ts = None
+        self.last_tick = {}
         self.ledger_path = ledger_path
 
     def log(self, **event):
@@ -162,6 +182,9 @@ class PaperBroker:
 
     def mark(self, tick):
         self.last_mid[tick.product] = tick.mid
+        self.last_tick[tick.product] = tick
+        self.first_ts = tick.ts if self.first_ts is None else self.first_ts
+        self.last_ts = tick.ts
         day = datetime.fromtimestamp(tick.ts, timezone.utc).date()
         eq = self.equity()
         if day != self.day:
@@ -177,34 +200,46 @@ class PaperBroker:
 
     def buy(self, tick, strategy):
         key = (tick.product, strategy)
-        if self.paused or key in self.positions or len(self.positions) >= self.cfg.max_positions:
-            return
+        if self.paused or self.halted or key in self.positions or len(self.positions) >= self.cfg.max_positions:
+            return None
         notional = self.equity() * self.cfg.risk_per_trade
         if notional > self.cash or notional <= 0:
-            return
+            return None
+        rate = self.cfg.fee(tick.product)
         price = tick.ask * (1 + self._slip())
-        fee = notional * self.cfg.taker_fee
+        fee = notional * rate
         qty = (notional - fee) / price
         self.cash -= notional
         self.fees += fee
-        self.positions[key] = Position(tick.product, strategy, qty, price, tick.ts)
+        pos = self.positions[key] = Position(tick.product, strategy, qty, price, tick.ts, rate)
         self.log(ts=tick.ts, event="buy", product=tick.product, strategy=strategy,
-                 price=round(price, 6), qty=qty, fee=round(fee, 4))
+                 price=round(price, 6), qty=qty, notional=round(notional, 2), fee=round(fee, 4))
+        return pos
 
     def sell(self, tick, strategy, reason="signal"):
         pos = self.positions.pop((tick.product, strategy), None)
         if not pos:
-            return
+            return None
         price = tick.bid * (1 - self._slip())
         gross = pos.qty * price
-        fee = gross * self.cfg.taker_fee
+        fee = gross * pos.fee_rate
         self.cash += gross - fee
         self.fees += fee
-        cost = pos.qty * pos.entry / (1 - self.cfg.taker_fee)
+        cost = pos.qty * pos.entry / (1 - pos.fee_rate)
         pnl = gross - fee - cost
         self.closed.append({"strategy": strategy, "pnl": pnl, "held_s": tick.ts - pos.opened})
         self.log(ts=tick.ts, event="sell", reason=reason, product=tick.product, strategy=strategy,
                  price=round(price, 6), fee=round(fee, 4), pnl=round(pnl, 4))
+        return pos
+
+    def halt(self, reason="manual_kill"):
+        """Close every position at its last quote and stop trading for the rest of the run."""
+        for product, strategy in list(self.positions):
+            last = self.last_tick.get(product)
+            if last is not None:
+                self.sell(last, strategy, reason)
+        self.halted = True
+        self.log(ts=self.last_ts, event="halt", reason=reason, equity=round(self.equity(), 2))
 
     def check_exits(self, tick):
         for (product, strategy), pos in list(self.positions.items()):
@@ -215,6 +250,19 @@ class PaperBroker:
                 self.sell(tick, strategy, "stop_loss")
             elif move >= self.cfg.take_profit:
                 self.sell(tick, strategy, "take_profit")
+
+    def gate(self):
+        """Measured part of the paper-to-live gate. Thesis, LLC account and Nicole's yes are human steps."""
+        days = (self.last_ts - self.first_ts) / 86_400 if self.first_ts is not None else 0.0
+        net = sum(t["pnl"] for t in self.closed)
+        checks = {
+            "days_running": round(days, 2) >= self.cfg.gate_min_days,
+            "closed_trades": len(self.closed) >= self.cfg.gate_min_trades,
+            "net_positive_after_fees": net > 0,
+            "max_drawdown": self.max_dd < self.cfg.gate_max_drawdown,
+        }
+        return {"days_running": round(days, 2), "net_pnl": round(net, 2), "checks": checks,
+                "measured_checks_passed": all(checks.values())}
 
     def summary(self):
         wins = [t for t in self.closed if t["pnl"] > 0]
@@ -233,10 +281,13 @@ class PaperBroker:
             "fees_paid": round(self.fees, 2),
             "closed_trades": len(self.closed),
             "win_rate_pct": round(100 * len(wins) / len(self.closed), 1) if self.closed else None,
+            "expectancy": round(sum(t["pnl"] for t in self.closed) / len(self.closed), 4) if self.closed else None,
             "max_drawdown_pct": round(self.max_dd * 100, 3),
             "open_positions": len(self.positions),
             "kill_switch_active": self.paused,
+            "halted": self.halted,
             "per_strategy": per,
+            "gate": self.gate(),
         }
 
 
@@ -279,9 +330,12 @@ def replay_feed(path):
 
 # ---------------------------------------------------------------- runner
 
-def run(feed, strategies, broker, summary_path=None, summary_every=60):
+def run(feed, strategies, broker, summary_path=None, summary_every=60, stop_file=None):
     for i, tick in enumerate(feed, 1):
         broker.mark(tick)
+        if stop_file is not None and Path(stop_file).exists():
+            broker.halt("manual_kill")
+            break
         broker.check_exits(tick)
         for strat in strategies:
             sig = strat.signal(tick)
@@ -324,7 +378,7 @@ def main():
         feed = replay_feed(args.replay)
 
     try:
-        result = run(feed, strategies, broker, summary_path=out / "summary.json")
+        result = run(feed, strategies, broker, summary_path=out / "summary.json", stop_file=out / "STOP")
     except KeyboardInterrupt:
         result = broker.summary()
         (out / "summary.json").write_text(json.dumps(result, indent=2))
