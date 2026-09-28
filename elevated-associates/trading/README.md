@@ -23,7 +23,7 @@ It needs only Python 3.9+ and no packages. Each run writes `paper_runs/<time>/le
 
 ## Alpaca paper (Linear ELE-40)
 
-`alpaca_paper.py` runs the same strategies on Alpaca quotes and mirrors each simulated entry and exit as a market order in Alpaca's **paper** account. That gives one broker for stocks, ETFs and crypto that an LLC can later hold live (Robinhood can't open LLC accounts).
+`alpaca_paper.py` runs the same strategies on Alpaca quotes and mirrors each simulated entry and exit as a market order in Alpaca's **paper** account. That gives one broker for stocks, ETFs and crypto with a free paper account (Robinhood has no paper API). Trading runs in Nicole's personal name; going live later only means swapping in live keys for a personal account.
 
 - **Paper only.** The client refuses any host except `paper-api.alpaca.markets`, and a test checks that the live host appears nowhere in the module.
 - **Keys** come from the environment variables `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` (paper keys). Never commit them or paste them into chat.
