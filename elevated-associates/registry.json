@@ -1,0 +1,110 @@
+{
+  "entity": {
+    "name": "Elevated Associates LLC",
+    "role": "Umbrella entity for every revenue stream, agent, and account in this workspace",
+    "owner": "Nicole",
+    "as_of": "2026-09-28"
+  },
+  "streams": [
+    {
+      "id": "elevated-ai-services",
+      "name": "Elevated AI — implementation services",
+      "model": "Fixed-scope B2B packages: $5k Readiness Sprint, $10k Workflow Pilot, $15k Executive AI Implementation; free 30-min fit call first",
+      "status": "active",
+      "revenue_potential": "high",
+      "automation": "Weekly free lead list + content (Routine, Mon)",
+      "blocked_on": [],
+      "doc": "streams/elevated-ai-services.md"
+    },
+    {
+      "id": "elevat",
+      "name": "Elevat — AI LinkedIn post writer",
+      "model": "Freemium SaaS: 3 free posts/day, Pro $29/month",
+      "status": "live",
+      "url": "https://eai-workspace.floot.app",
+      "revenue_potential": "medium",
+      "automation": "Daily sales pulse, social content M/W/F, weekly contest scout (Routines)",
+      "blocked_on": ["stripe-reconnect"],
+      "doc": "streams/elevat.md"
+    },
+    {
+      "id": "riskline",
+      "name": "Riskline — position-size / risk calculator",
+      "model": "Free tool building an audience; Pro waitlist (founder pricing for first 200)",
+      "status": "live",
+      "url": "https://claude.ai/artifact/GFwKMnSHVmWvYKFQUftBM5",
+      "revenue_potential": "medium",
+      "automation": "Hourly markets/waitlist refresh + daily ops (Routines)",
+      "blocked_on": ["routine-usage-limit"],
+      "doc": "streams/riskline.md"
+    },
+    {
+      "id": "high-yield-extensions",
+      "name": "High-Yield Extensions",
+      "model": "Browser extensions with license-check backend (free Supabase Edge Function)",
+      "status": "backend-live",
+      "revenue_potential": "medium",
+      "automation": "Covered by venture ops scans",
+      "blocked_on": [],
+      "doc": "streams/high-yield-extensions.md"
+    },
+    {
+      "id": "moneyprinter",
+      "name": "MoneyPrinter — automated Shorts",
+      "model": "Ad/affiliate revenue from auto-generated short-form video",
+      "status": "blocked",
+      "revenue_potential": "low-medium",
+      "automation": "Pipeline built and tested end to end",
+      "blocked_on": ["pexels-key", "youtube-connection"],
+      "doc": "streams/moneyprinter.md"
+    },
+    {
+      "id": "algorithmic-trading",
+      "name": "Algorithmic / \"quantum\" trading research",
+      "model": "Paper trading only; research and tooling, no real capital",
+      "status": "paper-only",
+      "revenue_potential": "unproven",
+      "automation": "Meme-coin paper bot (hourly, simulated $1,000)",
+      "blocked_on": [],
+      "doc": "streams/trading-and-web3.md"
+    },
+    {
+      "id": "web3",
+      "name": "Web3 tooling & content",
+      "model": "Sell tools/education/services around Web3 rather than speculate; read-only on-chain data",
+      "status": "exploring",
+      "revenue_potential": "unproven",
+      "automation": "None yet",
+      "blocked_on": ["coinbase-business-setup"],
+      "doc": "streams/trading-and-web3.md"
+    },
+    {
+      "id": "kraken-bot",
+      "name": "Kraken funding-capture bot",
+      "status": "retired",
+      "revenue_potential": "n/a",
+      "automation": "None — retired 2026-09-09 at owner's request; do not resume",
+      "blocked_on": [],
+      "doc": "streams/trading-and-web3.md"
+    }
+  ],
+  "agents": [
+    {"id": "trig_01FobFPUNN5fPYmoJj2bjDuB", "name": "Daily: sales pulse + Grok list + PRs", "kind": "routine", "schedule": "daily 14:00 UTC", "streams": ["elevat", "elevated-ai-services"], "last_status": "succeeded", "last_run": "2026-09-27"},
+    {"id": "trig_01BZH2bjcg88R59stJQXBFUV", "name": "Elevated AI LinkedIn prospects (Mon, free)", "kind": "routine", "schedule": "Mon 12:52 UTC", "streams": ["elevated-ai-services"], "last_status": "succeeded", "last_run": "2026-09-28"},
+    {"id": "trig_01A1kua9jhwCaWVvnty9BLFe", "name": "Elevat social content (Mon/Wed/Fri)", "kind": "routine", "schedule": "M/W/F 14:47 UTC", "streams": ["elevat"], "last_status": "not-yet-run", "last_run": null},
+    {"id": "trig_01FYazCwkRbbRqHaSx6u8ZuY", "name": "Elevat contest scout (Mon)", "kind": "routine", "schedule": "Mon 15:46 UTC", "streams": ["elevat"], "last_status": "not-yet-run", "last_run": null},
+    {"id": "trig_01EftnYpKFQqYgGd6u4WWnpL", "name": "Riskline — hourly markets & waitlist refresh", "kind": "routine", "schedule": "hourly :46", "streams": ["riskline"], "last_status": "failed", "last_run": "2026-09-28"},
+    {"id": "trig_013Q3HPdMyY5T3ZGyP3Zd8Ly", "name": "Riskline daily ops", "kind": "routine", "schedule": "daily 12:48 UTC", "streams": ["riskline"], "last_status": "failed", "last_run": "2026-09-28"},
+    {"id": "trig_01RQsg6LZvbsFBYA9GL4U1pd", "name": "Weekly status update (Fri)", "kind": "routine", "schedule": "Fri 15:46 UTC", "streams": ["all"], "last_status": "succeeded", "last_run": "2026-09-26"},
+    {"id": "daybook", "name": "Daybook dashboard", "kind": "artifact", "url": "https://claude.ai/artifact/HJ8Pv2xtqxF575v3JB4gRY", "streams": ["all"], "last_status": "live", "last_run": "2026-09-12"},
+    {"id": "growth-plan", "name": "Venture Growth & Optimization Plan", "kind": "artifact", "url": "https://claude.ai/artifact/CkbPEDJZ8gtfCVuZ53h4Dm", "streams": ["all"], "last_status": "live", "last_run": "2026-09-16"},
+    {"id": "supergrok-bridge", "name": "SuperGrok Bridge (this repo)", "kind": "tool", "streams": ["all"], "last_status": "local-only", "note": "Desktop shell hosting Grok/ChatGPT/Gemini/Claude web sessions; runs on the owner's machine, not in the cloud"}
+  ],
+  "blockers": [
+    {"id": "routine-usage-limit", "what": "Riskline hourly + daily Routines failed today within ~15s of firing; several sessions this month stopped on the weekly usage limit (next reset shown as Sep 30, 01:00 UTC)", "who": "Nicole", "action": "Check plan usage at claude.ai/settings/usage; if limits keep tripping, pause the hourly Riskline refresh (the most frequent job) so higher-value runs finish", "cost": "$0 to pause"},
+    {"id": "stripe-reconnect", "what": "Stripe connector wouldn't load in the 'Accounts audit' session (Sep 23), so paid-subscription checks can't run", "who": "Nicole", "action": "Reconnect Stripe under claude.ai → Settings → Connectors", "cost": "$0"},
+    {"id": "coinbase-business-setup", "what": "Coinbase Business / trust account checklist is waiting on EIN and entity documents", "who": "Nicole", "action": "Work through the Coinbase Business Trust Account Checklist artifact", "cost": "$0"},
+    {"id": "pexels-key", "what": "MoneyPrinter needs a free Pexels API key for stock footage", "who": "Nicole", "action": "Create a free key at pexels.com/api under the LLC's email", "cost": "$0"},
+    {"id": "youtube-connection", "what": "MoneyPrinter auto-upload needs a YouTube channel owned by the LLC", "who": "Nicole", "action": "Create/choose the channel, then connect it", "cost": "$0"}
+  ]
+}
