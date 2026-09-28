@@ -16,6 +16,7 @@ Consolidated from Claude Code sessions, scheduled Routines and published artifac
 | Sep 24 | Venture ops daily scan: both PRs merged, high-yield-extensions CI green | HYE / EAI |
 | Sep 26 | Robinhood trading MCP added to awesome-grok (`.mcp.json`, PR merged). Riskline updated. Weekly status Routine ran. | Trading |
 | Sep 26 | Elevated AI LinkedIn prospects, Elevat social content and Elevat contest scout Routines recreated in fresh-session mode | Elevated AI / Elevat |
+| Sep 28 | Elevat payment audit: live Stripe key invalid, and the Payment Link was test mode. Removed the test link from production (waitlist shows instead) and republished. QuickBooks connector signed out. | Elevat |
 | Sep 28 | Weekly LinkedIn prospects Routine succeeded. Riskline hourly + daily Routines **failed** within ~15s. | Elevated AI / Riskline |
 
 ## Recurring failure: usage limits
