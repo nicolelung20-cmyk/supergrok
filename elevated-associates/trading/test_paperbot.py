@@ -15,8 +15,8 @@ class BrokerTest(unittest.TestCase):
         b.mark(tick(100))
         b.buy(tick(100), "s")
         b.sell(tick(100), "s")
-        # 10% of $1000 in, fee on entry and on exit
-        self.assertAlmostEqual(b.cash, 1000 - 100 * 0.006 - 100 * 0.994 * 0.006, places=6)
+        # 5% of $1000 in (risk policy), fee on entry and on exit
+        self.assertAlmostEqual(b.cash, 1000 - 50 * 0.006 - 50 * 0.994 * 0.006, places=6)
         self.assertAlmostEqual(b.closed[0]["pnl"], b.cash - 1000, places=6)
 
     def test_stop_loss_and_take_profit(self):
@@ -39,6 +39,41 @@ class BrokerTest(unittest.TestCase):
         b.sell(tick(94), "a")
         b.buy(tick(94), "b")
         self.assertFalse(b.positions)
+
+    def test_stocks_use_stock_fee(self):
+        b = PaperBroker(Config(taker_fee=0.006, stock_fee=0.0, slippage_bps=0))
+        b.mark(tick(100, product="SPY"))
+        b.buy(tick(100, product="SPY"), "s")
+        b.sell(tick(100, product="SPY"), "s")
+        self.assertEqual(b.fees, 0)
+        self.assertAlmostEqual(b.cash, 1000, places=6)
+
+    def test_default_config_matches_risk_policy(self):
+        c = Config()
+        self.assertEqual((c.risk_per_trade, c.daily_kill_switch, c.max_positions), (0.05, 0.03, 5))
+
+    def test_halt_closes_everything_and_blocks_entries(self):
+        b = PaperBroker(Config(slippage_bps=0))
+        for p in ("BTC-USD", "SPY"):
+            b.mark(tick(100, product=p))
+            b.buy(tick(100, product=p), "s")
+        b.halt()
+        self.assertFalse(b.positions)
+        self.assertTrue(b.halted)
+        b.buy(tick(100), "s")
+        self.assertFalse(b.positions)
+
+    def test_gate_needs_days_trades_profit_and_low_drawdown(self):
+        b = PaperBroker(Config(slippage_bps=0, taker_fee=0, gate_min_days=1, gate_min_trades=2))
+        g = b.gate()
+        self.assertFalse(g["measured_checks_passed"])
+        for i, ts in enumerate((0, 50_000)):
+            b.mark(tick(100, ts=ts))
+            b.buy(tick(100, ts=ts), "s")
+            b.sell(tick(101, ts=ts + 1), "s")
+        b.mark(tick(101, ts=90_000))
+        g = b.gate()
+        self.assertTrue(all(g["checks"].values()), g)
 
     def test_max_positions(self):
         b = PaperBroker(Config(max_positions=1))
@@ -71,6 +106,18 @@ class SafetyTest(unittest.TestCase):
         self.assertTrue(paperbot.PAPER_ONLY)
         for banned in ("api_key", "api_secret", "/orders", "private", "hmac", "signature"):
             self.assertNotIn(banned, src)
+
+
+class StopFileTest(unittest.TestCase):
+    def test_stop_file_halts_run(self):
+        import tempfile
+        from pathlib import Path
+        with tempfile.TemporaryDirectory() as d:
+            stop = Path(d) / "STOP"
+            stop.write_text("")
+            b = PaperBroker(Config())
+            out = run(synthetic_feed(["BTC-USD"], 100), [EmaCross()], b, stop_file=stop)
+            self.assertTrue(out["halted"])
 
 
 class EndToEndTest(unittest.TestCase):
