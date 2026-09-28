@@ -73,9 +73,9 @@
       "model": "Paper trading only; research and tooling, no real capital",
       "status": "paper-only",
       "revenue_potential": "unproven",
-      "automation": "Meme-coin paper bot (hourly, simulated $1,000)",
+      "automation": "Second-by-second paper engine (elevated-associates/trading/paperbot.py): Coinbase public feed, EMA-cross + z-score strategies, real 0.6% fees, daily kill-switch. Runs on an always-on machine; the cloud blocks exchange APIs",
       "blocked_on": [],
-      "doc": "streams/trading-and-web3.md"
+      "doc": "trading/README.md"
     },
     {
       "id": "web3",

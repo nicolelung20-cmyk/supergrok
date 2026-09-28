@@ -11,7 +11,7 @@ _Generated 2026-09-28 from `registry.json` by `ops/ea_status.py`. Edit the regis
 | [Riskline — position-size / risk calculator](streams/riskline.md) | live | medium | Hourly markets/waitlist refresh + daily ops (Routines) | routine-usage-limit |
 | [High-Yield Extensions](streams/high-yield-extensions.md) | backend-live | medium | Covered by venture ops scans | — |
 | [MoneyPrinter — automated Shorts](streams/moneyprinter.md) | blocked | low-medium | Pipeline built and tested end to end | pexels-key, youtube-connection |
-| [Algorithmic / "quantum" trading research](streams/trading-and-web3.md) | paper-only | unproven | Meme-coin paper bot (hourly, simulated $1,000) | — |
+| [Algorithmic / "quantum" trading research](trading/README.md) | paper-only | unproven | Second-by-second paper engine (elevated-associates/trading/paperbot.py): Coinbase public feed, EMA-cross + z-score strategies, real 0.6% fees, daily kill-switch. Runs on an always-on machine; the cloud blocks exchange APIs | — |
 | [Web3 tooling & content](streams/trading-and-web3.md) | exploring | unproven | None yet | coinbase-business-setup |
 | [Kraken funding-capture bot](streams/trading-and-web3.md) | retired | n/a | None — retired 2026-09-09 at owner's request; do not resume | — |
 

@@ -34,3 +34,4 @@ session.log
 
 # Packaged delivery zips
 *.zip
+paper_runs/
