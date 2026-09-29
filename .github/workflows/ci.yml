@@ -1,0 +1,22 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Paper trading tests
+        working-directory: elevated-associates/trading
+        run: python -m unittest -v test_paperbot test_alpaca_paper
+      - name: Validate venture registry
+        run: python elevated-associates/ops/ea_status.py --check
+      - name: Bridge compiles
+        run: python -m py_compile start.py app.py login_bridge.py
