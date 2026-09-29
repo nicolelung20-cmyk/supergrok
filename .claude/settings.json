@@ -5,10 +5,20 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$CLAUDE_PROJECT_DIR/.claude/hooks/session-start.sh"
+            "command": "\"$CLAUDE_PROJECT_DIR\"/.claude/hooks/session-start.sh",
+            "timeout": 120,
+            "statusMessage": "Running repo checks"
           }
         ]
       }
+    ]
+  },
+  "permissions": {
+    "allow": [
+      "Bash(python3 elevated-associates/ops/ea_status.py --check)",
+      "Bash(python3 -m unittest test_paperbot test_alpaca_paper)",
+      "Bash(python3 -m py_compile start.py app.py login_bridge.py)",
+      "Bash(python3 paperbot.py --synthetic *)"
     ]
   }
 }
