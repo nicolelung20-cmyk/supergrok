@@ -107,6 +107,7 @@ DEFAULT_DEEPSEEK_URL = "https://chat.deepseek.com/"
 DEFAULT_COPILOT_URL = "https://copilot.microsoft.com/"
 DEFAULT_PERPLEXITY_URL = "https://www.perplexity.ai/"
 DEFAULT_MISTRAL_URL = "https://chat.mistral.ai/chat"
+DEFAULT_HUGGINGCHAT_URL = "https://huggingface.co/chat/"
 # Hermes Agent is self-hosted: this is the default Hermes WebUI address. Point the bridge at yours with --url.
 DEFAULT_HERMES_URL = "http://127.0.0.1:8787/"
 DEFAULT_URL = DEFAULT_GROK_URL
@@ -154,8 +155,9 @@ DEEPSEEK_TARGET_ALIASES = {"deepseek", "deep-seek", "deepseek-bridge", "deepseek
 COPILOT_TARGET_ALIASES = {"copilot", "ms-copilot", "copilot-bridge", "copilotbridge", "cop"}
 PERPLEXITY_TARGET_ALIASES = {"perplexity", "pplx", "ppx", "perplexity-bridge", "perplexitybridge"}
 MISTRAL_TARGET_ALIASES = {"mistral", "lechat", "le-chat", "mistral-bridge", "mistralbridge"}
+HUGGINGCHAT_TARGET_ALIASES = {"huggingchat", "hugging-chat", "hfchat", "hf-chat", "huggingface", "hugging-face", "huggingchat-bridge", "huggingchatbridge"}
 HERMES_TARGET_ALIASES = {"hermes", "hermes-agent", "hermes-webui", "hermes-bridge", "hermesbridge"}
-ALL_CHAT_TARGET_ALIASES = CHATGPT_TARGET_ALIASES | GROK_TARGET_ALIASES | GEMINI_TARGET_ALIASES | CLAUDE_TARGET_ALIASES | DEEPSEEK_TARGET_ALIASES | COPILOT_TARGET_ALIASES | PERPLEXITY_TARGET_ALIASES | MISTRAL_TARGET_ALIASES | HERMES_TARGET_ALIASES
+ALL_CHAT_TARGET_ALIASES = CHATGPT_TARGET_ALIASES | GROK_TARGET_ALIASES | GEMINI_TARGET_ALIASES | CLAUDE_TARGET_ALIASES | DEEPSEEK_TARGET_ALIASES | COPILOT_TARGET_ALIASES | PERPLEXITY_TARGET_ALIASES | MISTRAL_TARGET_ALIASES | HUGGINGCHAT_TARGET_ALIASES | HERMES_TARGET_ALIASES
 CHATGPT_CLI_FLAG_ALIASES = {
     "--chatgpt", "--chatgtp", "--gpt", "--gtp",
     "-chatgpt", "-chatgtp", "-gpt", "-gtp",
@@ -191,12 +193,17 @@ MISTRAL_CLI_FLAG_ALIASES = {
     "-mistral", "-lechat",
     "/mistral", "/lechat",
 }
+HUGGINGCHAT_CLI_FLAG_ALIASES = {
+    "--huggingchat", "--hfchat",
+    "-huggingchat", "-hfchat",
+    "/huggingchat", "/hfchat",
+}
 HERMES_CLI_FLAG_ALIASES = {
     "--hermes",
     "-hermes",
     "/hermes",
 }
-CHAT_CLI_FLAG_ALIASES = {"--chat", "-chat", "/chat"} | CHATGPT_CLI_FLAG_ALIASES | GEMINI_CLI_FLAG_ALIASES | CLAUDE_CLI_FLAG_ALIASES | DEEPSEEK_CLI_FLAG_ALIASES | COPILOT_CLI_FLAG_ALIASES | PERPLEXITY_CLI_FLAG_ALIASES | MISTRAL_CLI_FLAG_ALIASES | HERMES_CLI_FLAG_ALIASES
+CHAT_CLI_FLAG_ALIASES = {"--chat", "-chat", "/chat"} | CHATGPT_CLI_FLAG_ALIASES | GEMINI_CLI_FLAG_ALIASES | CLAUDE_CLI_FLAG_ALIASES | DEEPSEEK_CLI_FLAG_ALIASES | COPILOT_CLI_FLAG_ALIASES | PERPLEXITY_CLI_FLAG_ALIASES | MISTRAL_CLI_FLAG_ALIASES | HUGGINGCHAT_CLI_FLAG_ALIASES | HERMES_CLI_FLAG_ALIASES
 
 
 def normalizeChatTarget(value: object = "") -> str:
@@ -217,6 +224,8 @@ def normalizeChatTarget(value: object = "") -> str:
         return "perplexity"
     if target in MISTRAL_TARGET_ALIASES:
         return "mistral"
+    if target in HUGGINGCHAT_TARGET_ALIASES:
+        return "huggingchat"
     if target in HERMES_TARGET_ALIASES:
         return "hermes"
     return target or "grok"
@@ -238,6 +247,8 @@ def defaultUrlForChatTarget(target: object = "") -> str:
         return DEFAULT_PERPLEXITY_URL
     if t == "mistral":
         return DEFAULT_MISTRAL_URL
+    if t == "huggingchat":
+        return DEFAULT_HUGGINGCHAT_URL
     if t == "hermes":
         return DEFAULT_HERMES_URL
     return DEFAULT_GROK_URL
@@ -260,6 +271,8 @@ def urlLooksLikeTarget(url: object, target: object = "") -> bool:
         return "perplexity.ai" in text
     if wanted == "mistral":
         return "mistral.ai" in text
+    if wanted == "huggingchat":
+        return "huggingface.co" in text
     if wanted == "hermes":
         return "hermes" in text or ":8787" in text
     return "grok.com" in text or "x.ai" in text
@@ -901,7 +914,7 @@ def buildParser() -> argparse.ArgumentParser:
     parser.add_argument("--swallowed", "--swallowed-exceptions", action="store_true", help="Run only the swallowed exceptions detector and exit.")
     parser.add_argument("--manual", "--man", action="store_true", help="Print usage/manual with detector commands and exit.")
     parser.add_argument("--url", default=DEFAULT_URL, help="URL to load in the browser pane. Defaults to Grok, or ChatGPT when --chatgpt/--chatgtp is used.")
-    parser.add_argument("--target", choices=["grok", "chatgpt", "gemini", "claude", "deepseek", "copilot", "perplexity", "mistral", "hermes"], default="", help="Browser target for --serve-bridge. Usually inferred from --chat/--chatgpt/--gemini/--claude/--deepseek/--hermes or --url.")
+    parser.add_argument("--target", choices=["grok", "chatgpt", "gemini", "claude", "deepseek", "copilot", "perplexity", "mistral", "huggingchat", "hermes"], default="", help="Browser target for --serve-bridge. Usually inferred from --chat/--chatgpt/--gemini/--claude/--deepseek/--huggingchat/--hermes or --url.")
     parser.add_argument("--chat", nargs="*", default=None, help="Send a command-line chat request. Examples: --chat \"hello\", --chat --debug \"hello\", --chat grok \"hello\", --chat chatgpt \"hello\", or --chat grok deployment \"hello\".")
     parser.add_argument("--chatgpt", "--chatgtp", "--gpt", "--gtp", dest="chatgpt", nargs="*", default=None, help="Send a command-line chat request through ChatGPT at chatgpt.com. With no message, opens the visible ChatGPT bridge so you can log in and persist cookies. Aliases keep --chatgtp, --gpt, and --gtp working.")
     parser.add_argument("--gemini", "--gem", "--bard", dest="gemini", nargs="*", default=None, help="Send a command-line chat request through Gemini (gemini.google.com). With no message, opens the visible Gemini bridge so you can log in.")
@@ -911,6 +924,7 @@ def buildParser() -> argparse.ArgumentParser:
     parser.add_argument("--copilot", "--cop", dest="copilot", nargs="*", default=None, help="Send a command-line chat request through Copilot (copilot.microsoft.com). With no message, opens the visible Copilot bridge so you can log in.")
     parser.add_argument("--perplexity", "--pplx", dest="perplexity", nargs="*", default=None, help="Send a command-line chat request through Perplexity (perplexity.ai). With no message, opens the visible Perplexity bridge so you can log in.")
     parser.add_argument("--mistral", "--lechat", dest="mistral", nargs="*", default=None, help="Send a command-line chat request through Mistral Le Chat (mistral.ai). With no message, opens the visible Mistral Le Chat bridge so you can log in.")
+    parser.add_argument("--huggingchat", "--hfchat", dest="huggingchat", nargs="*", default=None, help="Send a command-line chat request through HuggingChat (huggingface.co/chat). With no message, opens the visible HuggingChat bridge so you can log in.")
     parser.add_argument("--attach", action="append", default=[], help="Attach an input file to a --chat request. May be repeated. Text files inlined; binary/image/PDF sent as base64. Replaces the old --file-as-attachment usage.")
     parser.add_argument("--file", nargs="?", const="<dialog>", default=None, help="Save the chat response to a file. With a path (--file out.txt), writes directly. Bare --file pops a Qt Save-As dialog. Use --attach for input files.")
     parser.add_argument("--serve-bridge", "--bridge-service", action="store_true", help="Run the resident local Grok bridge command service so Grok stays warm/logged in.")
@@ -981,6 +995,10 @@ def mistralFlagPresent(argv: list[str] | None) -> bool:
     return any(str(token or "").strip().lower() in MISTRAL_CLI_FLAG_ALIASES for token in list(argv or []))
 
 
+def huggingchatFlagPresent(argv: list[str] | None) -> bool:
+    return any(str(token or "").strip().lower() in HUGGINGCHAT_CLI_FLAG_ALIASES for token in list(argv or []))
+
+
 def hermesFlagPresent(argv: list[str] | None) -> bool:
     return any(str(token or "").strip().lower() in HERMES_CLI_FLAG_ALIASES for token in list(argv or []))
 
@@ -1005,6 +1023,8 @@ def activeChatArgName(args: argparse.Namespace, argv: list[str] | None = None) -
         return "perplexity"
     if getattr(args, "mistral", None) is not None:
         return "mistral"
+    if getattr(args, "huggingchat", None) is not None:
+        return "huggingchat"
     if getattr(args, "hermes", None) is not None:
         return "hermes"
     return "chat"
@@ -1257,6 +1277,37 @@ def forceMistralChatParts(parts: list[str] | None) -> list[str]:
     return ["mistral", *values]
 
 
+def huggingchatBridgeLoginRequested(args: argparse.Namespace) -> bool:
+    """Like chatGptBridgeLoginRequested but for --huggingchat with no message."""
+    if getattr(args, "chat", None) is not None:
+        return False
+    values = getattr(args, "huggingchat", None)
+    if values is None:
+        return False
+    return not any(str(item or "").strip() for item in list(values or []))
+
+
+def configureHuggingchatLoginBridgeArgs(args: argparse.Namespace) -> None:
+    args.chat = None
+    args.huggingchat = []
+    args.chat_target = "huggingchat"
+    args.target = "huggingchat"
+    args.url = DEFAULT_HUGGINGCHAT_URL
+    args.serve_bridge = True
+    args.show_bridge = True
+    args.offscreen = False
+
+
+def forceHuggingchatChatParts(parts: list[str] | None) -> list[str]:
+    values = [str(item) for item in list(parts or []) if str(item or "").strip()]
+    if not values:
+        return ["huggingchat"]
+    first = values[0].strip().lower().replace("_", "-")
+    if first in ALL_CHAT_TARGET_ALIASES:
+        return ["huggingchat", *values[1:]]
+    return ["huggingchat", *values]
+
+
 def hermesBridgeLoginRequested(args: argparse.Namespace) -> bool:
     """Like deepseekBridgeLoginRequested but for --hermes with no message."""
     if getattr(args, "chat", None) is not None:
@@ -1311,6 +1362,8 @@ def _inferTargetFromUrl(args: argparse.Namespace) -> str:
         return "perplexity"
     if urlLooksLikeTarget(url, "mistral"):
         return "mistral"
+    if urlLooksLikeTarget(url, "huggingchat"):
+        return "huggingchat"
     if urlLooksLikeTarget(url, "hermes"):
         return "hermes"
     return "grok"
@@ -1338,6 +1391,8 @@ def normalizeTargetUrlArgs(args: argparse.Namespace) -> None:
         args.url = DEFAULT_PERPLEXITY_URL
     elif target == "mistral" and _urlEffectivelyDefault(args):
         args.url = DEFAULT_MISTRAL_URL
+    elif target == "huggingchat" and _urlEffectivelyDefault(args):
+        args.url = DEFAULT_HUGGINGCHAT_URL
     elif target == "hermes" and _urlEffectivelyDefault(args):
         args.url = DEFAULT_HERMES_URL
     elif target == "grok" and not str(getattr(args, "url", "") or "").strip():
@@ -1352,6 +1407,7 @@ def normalizeChatModeArgs(args: argparse.Namespace) -> None:
     copilot_alias_requested = bool(getattr(args, "copilot_alias_requested", False) or getattr(args, "copilot", None) is not None)
     perplexity_alias_requested = bool(getattr(args, "perplexity_alias_requested", False) or getattr(args, "perplexity", None) is not None)
     mistral_alias_requested = bool(getattr(args, "mistral_alias_requested", False) or getattr(args, "mistral", None) is not None)
+    huggingchat_alias_requested = bool(getattr(args, "huggingchat_alias_requested", False) or getattr(args, "huggingchat", None) is not None)
     hermes_alias_requested = bool(getattr(args, "hermes_alias_requested", False) or getattr(args, "hermes", None) is not None)
     if getattr(args, "chat", None) is not None and chatgpt_alias_requested:
         args.chat = forceChatGptChatParts(getattr(args, "chat", []) or [])
@@ -1367,6 +1423,8 @@ def normalizeChatModeArgs(args: argparse.Namespace) -> None:
         args.chat = forcePerplexityChatParts(getattr(args, "chat", []) or [])
     elif getattr(args, "chat", None) is not None and mistral_alias_requested:
         args.chat = forceMistralChatParts(getattr(args, "chat", []) or [])
+    elif getattr(args, "chat", None) is not None and huggingchat_alias_requested:
+        args.chat = forceHuggingchatChatParts(getattr(args, "chat", []) or [])
     elif getattr(args, "chat", None) is not None and hermes_alias_requested:
         args.chat = forceHermesChatParts(getattr(args, "chat", []) or [])
     elif getattr(args, "chatgpt", None) is not None:
@@ -1383,6 +1441,8 @@ def normalizeChatModeArgs(args: argparse.Namespace) -> None:
         args.chat = forcePerplexityChatParts(getattr(args, "perplexity", []) or [])
     elif getattr(args, "mistral", None) is not None:
         args.chat = forceMistralChatParts(getattr(args, "mistral", []) or [])
+    elif getattr(args, "huggingchat", None) is not None:
+        args.chat = forceHuggingchatChatParts(getattr(args, "huggingchat", []) or [])
     elif getattr(args, "hermes", None) is not None:
         args.chat = forceHermesChatParts(getattr(args, "hermes", []) or [])
     if getattr(args, "chat", None) is None:
@@ -1404,6 +1464,8 @@ def normalizeChatModeArgs(args: argparse.Namespace) -> None:
         args.url = DEFAULT_PERPLEXITY_URL
     elif target == "mistral" and _urlEffectivelyDefault(args):
         args.url = DEFAULT_MISTRAL_URL
+    elif target == "huggingchat" and _urlEffectivelyDefault(args):
+        args.url = DEFAULT_HUGGINGCHAT_URL
     elif target == "hermes" and _urlEffectivelyDefault(args):
         args.url = DEFAULT_HERMES_URL
     elif target == "grok" and not str(getattr(args, "url", "") or "").strip():
@@ -1976,6 +2038,7 @@ def chatProviderLabelLocal(target: str) -> str:
     if t == "copilot": return "Copilot"
     if t == "perplexity": return "Perplexity"
     if t == "mistral": return "Mistral Le Chat"
+    if t == "huggingchat": return "HuggingChat"
     if t == "hermes":  return "Hermes"
     return "Grok"
 
@@ -2120,6 +2183,9 @@ def runChatCommand(args: argparse.Namespace) -> int:
             elif target_for_hint == "mistral":
                 print("[HINT] Run once visibly with: python start.py --mistral", file=sys.stderr, flush=True)
                 print("[HINT] Log into Mistral Le Chat in the bridge window, leave it running, then use: python start.py --mistral \"message\"", file=sys.stderr, flush=True)
+            elif target_for_hint == "huggingchat":
+                print("[HINT] Run once visibly with: python start.py --huggingchat", file=sys.stderr, flush=True)
+                print("[HINT] Log into HuggingChat in the bridge window, leave it running, then use: python start.py --huggingchat \"message\"", file=sys.stderr, flush=True)
             elif target_for_hint == "hermes":
                 print("[HINT] Start Hermes WebUI first (default http://127.0.0.1:8787/), then run once visibly with: python start.py --hermes", file=sys.stderr, flush=True)
                 print("[HINT] Using another address? Pass it with --url, e.g.: python start.py --hermes \"message\" --url http://127.0.0.1:9000/", file=sys.stderr, flush=True)
@@ -2252,6 +2318,7 @@ def main(argv: list[str] | None = None) -> int:
     args.copilot_alias_requested = copilotFlagPresent(argv)
     args.perplexity_alias_requested = perplexityFlagPresent(argv)
     args.mistral_alias_requested = mistralFlagPresent(argv)
+    args.huggingchat_alias_requested = huggingchatFlagPresent(argv)
     args.hermes_alias_requested = hermesFlagPresent(argv)
     applyChatUnknownTail(args, unknown, argv)  # phase-hooks-ok
     chatgpt_login_bridge = chatGptBridgeLoginRequested(args)
@@ -2261,6 +2328,7 @@ def main(argv: list[str] | None = None) -> int:
     copilot_login_bridge = copilotBridgeLoginRequested(args)
     perplexity_login_bridge = perplexityBridgeLoginRequested(args)
     mistral_login_bridge = mistralBridgeLoginRequested(args)
+    huggingchat_login_bridge = huggingchatBridgeLoginRequested(args)
     hermes_login_bridge = hermesBridgeLoginRequested(args)
     if chatgpt_login_bridge:
         configureChatGptLoginBridgeArgs(args)
@@ -2276,6 +2344,8 @@ def main(argv: list[str] | None = None) -> int:
         configurePerplexityLoginBridgeArgs(args)
     elif mistral_login_bridge:
         configureMistralLoginBridgeArgs(args)
+    elif huggingchat_login_bridge:
+        configureHuggingchatLoginBridgeArgs(args)
     elif hermes_login_bridge:
         configureHermesLoginBridgeArgs(args)
     else:
@@ -2345,6 +2415,8 @@ def main(argv: list[str] | None = None) -> int:
                 targetHint = "perplexity"
             elif getattr(args, "mistral_alias_requested", False) or getattr(args, "mistral", None) is not None:
                 targetHint = "mistral"
+            elif getattr(args, "huggingchat_alias_requested", False) or getattr(args, "huggingchat", None) is not None:
+                targetHint = "huggingchat"
             elif getattr(args, "hermes_alias_requested", False) or getattr(args, "hermes", None) is not None:
                 targetHint = "hermes"
             else:

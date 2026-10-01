@@ -2,13 +2,13 @@
 
 **One desktop window for every chat AI. CLI for headless prompts. Real logged-in sessions, no API keys.**
 
-SuperGrok Bridge is a PySide6 + Qt WebEngine shell that hosts the web versions of **Grok**, **ChatGPT**, **Gemini**, **Claude**, **DeepSeek**, **Copilot**, **Perplexity**, **Mistral Le Chat**, and a self-hosted **Hermes** WebUI inside a single split-pane desktop window with a persistent per-provider cookie profile. From the command line you can fire a prompt at any of them and get the answer back on stdout — using your own logged-in session, not a paid API.
+SuperGrok Bridge is a PySide6 + Qt WebEngine shell that hosts the web versions of **Grok**, **ChatGPT**, **Gemini**, **Claude**, **DeepSeek**, **Copilot**, **Perplexity**, **Mistral Le Chat**, **HuggingChat**, and a self-hosted **Hermes** WebUI inside a single split-pane desktop window with a persistent per-provider cookie profile. From the command line you can fire a prompt at any of them and get the answer back on stdout — using your own logged-in session, not a paid API.
 
 > This project is intentionally built around your normal logged-in browser session. It does **not** bypass login, CAPTCHA, subscription checks, rate limits, or any access controls. You log in once through the visible bridge window; your cookies persist; the CLI reuses them.
 
 ## Highlights
 
-- 🤖 **Nine providers in one shell** — Grok, ChatGPT (incl. `--gpt`/`--gtp` aliases), Gemini, Claude, DeepSeek (`--deepseek`/`--dsk`), Copilot (`--copilot`), Perplexity (`--perplexity`/`--pplx`), Mistral (`--mistral`/`--lechat`), Hermes (`--hermes`).
+- 🤖 **Ten providers in one shell** — Grok, ChatGPT (incl. `--gpt`/`--gtp` aliases), Gemini, Claude, DeepSeek (`--deepseek`/`--dsk`), Copilot (`--copilot`), Perplexity (`--perplexity`/`--pplx`), Mistral (`--mistral`/`--lechat`), HuggingChat (`--huggingchat`/`--hfchat`), Hermes (`--hermes`).
 - 🏠 **Hermes is self-hosted** — start [Hermes WebUI](https://github.com/nesquena/hermes-webui) first (default `http://127.0.0.1:8787/`, no login on loopback). Use another address with `--url`, e.g. `python start.py --hermes "hi" --url http://127.0.0.1:9000/`. The official `hermes dashboard` `/chat` tab is a terminal, not a DOM chat, so the bridge targets the WebUI. Selectors come from the WebUI source and have not been round-tripped against a live instance yet.
 - 💬 **CLI chat** — `python start.py --chat "hello"` returns the answer to stdout. Attach files with `--attach`.
 - 🧠 **Resident bridge service** — `--serve-bridge` keeps the QtWebEngine warm and logged-in for instant CLI responses.

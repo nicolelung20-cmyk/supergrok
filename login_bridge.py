@@ -102,6 +102,14 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "successUrl": "https://chat.mistral.ai/chat",
         "size": (480, 720),
     },
+    "huggingchat": {
+        "label": "HuggingChat",
+        "homeUrl": "https://huggingface.co/chat/",
+        "loginUrl": "https://huggingface.co/login",
+        "authHosts": ("huggingface.co/login", "accounts.google.com",),
+        "successUrl": "https://huggingface.co/chat/",
+        "size": (480, 720),
+    },
     # Hermes WebUI is self-hosted. Loopback needs no login; the optional password page is /login.
     "hermes": {
         "label": "Hermes",
@@ -125,7 +133,7 @@ AUTH_PROBE_JS = r"""
     var title = String(document.title || '');
     var bodyText = String((document.body && document.body.innerText) || '').slice(0, 4000);
     var lower = (url + '\n' + title + '\n' + bodyText).toLowerCase();
-    var authHostHit = /(accounts\.x\.ai|auth\.openai\.com|auth0\.openai\.com|accounts\.google\.com|claude\.ai\/login|chat\.deepseek\.com\/sign_in|login\.live\.com|login\.microsoftonline\.com|perplexity\.ai\/sign-in|auth\.mistral\.ai|auth0\.com)/.test(lower);
+    var authHostHit = /(accounts\.x\.ai|auth\.openai\.com|auth0\.openai\.com|accounts\.google\.com|claude\.ai\/login|chat\.deepseek\.com\/sign_in|login\.live\.com|login\.microsoftonline\.com|perplexity\.ai\/sign-in|auth\.mistral\.ai|huggingface\.co\/login|auth0\.com)/.test(lower);
     var authPathHit = /\/(login|signin|sign[-_]?in|auth|oauth)(\b|[\/?#])/.test(url.toLowerCase());
     var authTextHit = /\b(continue with google|sign in to continue|log in to continue|please sign in|please log in|session expired|access denied|authentication required)\b/.test(lower);
     var loginLikely = !!(authHostHit || authPathHit || authTextHit);
