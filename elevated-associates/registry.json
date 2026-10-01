@@ -97,6 +97,16 @@
       "automation": "None — retired 2026-09-09 at owner's request; do not resume",
       "blocked_on": [],
       "doc": "streams/trading-and-web3.md"
+    },
+    {
+      "id": "agent-robin",
+      "name": "Agent Robin — dark web OSINT agent",
+      "model": "Internal research tool only: dark web OSINT agent over the Robin MCP server (nicolelung20-cmyk/robin). Not sold; no paid service",
+      "status": "exploring",
+      "revenue_potential": "none (internal)",
+      "automation": "Agent definition merged in robin#5; no scheduled runs",
+      "blocked_on": [],
+      "doc": "streams/agent-robin.md"
     }
   ],
   "agents": [
