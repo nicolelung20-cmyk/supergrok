@@ -21,6 +21,20 @@ It needs only Python 3.9+ and no packages. Each run writes `paper_runs/<time>/le
 
 **Where to run it around the clock (all $0):** Nicole's Mac, with `caffeinate -i python3 alpaca_paper.py`, or any always-on machine she owns. Claude's cloud sessions are temporary and their network policy currently blocks Alpaca and Coinbase, so they are for building and testing only.
 
+## Deploy: run the paper bot around the clock
+
+Run it on a machine you own (your Mac is free). One-time setup:
+
+1. Nothing else is required: with no keys it runs the keyless simulation (public Coinbase prices, simulated fills at the real fee, spread and slippage). It produces the same scorecard and gate status as the Alpaca mode.
+2. `./run_paper.sh` runs `trend_breakout` on BTC/USD (override with `PAPER_PRODUCTS` / `PAPER_STRATEGY`). On a Mac it uses `caffeinate` so the machine stays awake.
+3. `./run_paper.sh status` prints the latest scorecard, and `./run_paper.sh stop` is the kill-switch: it closes every position and exits.
+4. Optional, only if you want orders mirrored into a broker's paper account: set `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` (paper keys) in your shell, never in chat or git. The script then uses Alpaca automatically.
+
+Notes:
+- Leave it running. The gate's "days running" counts from process start, so a restart resets that clock (the ledger still appends).
+- `trend_breakout` builds hourly bars and needs about 20 bars of history before its first trade, so expect the first trade after roughly a day. This is also why a scheduled GitHub Actions run (short, fresh each time) can't run this strategy.
+- Paper only: the Alpaca client refuses any host except `paper-api.alpaca.markets`, and the keyless mode has no order path at all. Going live is a separate decision after the gate below.
+
 ## Alpaca paper (Linear ELE-40)
 
 `alpaca_paper.py` runs the same strategies on Alpaca quotes and mirrors each simulated entry and exit as a market order in Alpaca's **paper** account. That gives one broker for stocks, ETFs and crypto with a free paper account (Robinhood has no paper API). Trading runs in Nicole's personal name; going live later only means swapping in live keys for a personal account.

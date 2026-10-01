@@ -121,6 +121,9 @@ GROK_TARGET_ALIASES = {"grok", "supergrok", "xai"}
 GEMINI_TARGET_ALIASES = {"gemini", "gem", "gem-bridge", "gembridge", "google", "googleai", "bard"}
 CLAUDE_TARGET_ALIASES = {"claude", "anthropic", "claudeai", "claude-bridge", "claudebridge", "cl"}
 DEEPSEEK_TARGET_ALIASES = {"deepseek", "deep-seek", "deepseek-bridge", "deepseekbridge", "dsk"}
+COPILOT_TARGET_ALIASES = {"copilot", "ms-copilot", "copilot-bridge", "copilotbridge", "cop"}
+PERPLEXITY_TARGET_ALIASES = {"perplexity", "pplx", "ppx", "perplexity-bridge", "perplexitybridge"}
+MISTRAL_TARGET_ALIASES = {"mistral", "lechat", "le-chat", "mistral-bridge", "mistralbridge"}
 HERMES_TARGET_ALIASES = {"hermes", "hermes-agent", "hermes-webui", "hermes-bridge", "hermesbridge"}
 
 
@@ -136,6 +139,12 @@ def normalizeChatTarget(value: object = "") -> str:
         return "claude"
     if target in DEEPSEEK_TARGET_ALIASES:
         return "deepseek"
+    if target in COPILOT_TARGET_ALIASES:
+        return "copilot"
+    if target in PERPLEXITY_TARGET_ALIASES:
+        return "perplexity"
+    if target in MISTRAL_TARGET_ALIASES:
+        return "mistral"
     if target in HERMES_TARGET_ALIASES:
         return "hermes"
     return target or "grok"
@@ -151,6 +160,12 @@ def chatTargetFromUrl(url: object = "") -> str:
         return "claude"
     if "deepseek.com" in text:
         return "deepseek"
+    if "copilot.microsoft.com" in text:
+        return "copilot"
+    if "perplexity.ai" in text:
+        return "perplexity"
+    if "mistral.ai" in text:
+        return "mistral"
     if "hermes" in text or ":8787" in text:
         return "hermes"
     return "grok"
@@ -166,6 +181,12 @@ def chatProviderLabel(target: object = "") -> str:
         return "Claude"
     if t == "deepseek":
         return "DeepSeek"
+    if t == "copilot":
+        return "Copilot"
+    if t == "perplexity":
+        return "Perplexity"
+    if t == "mistral":
+        return "Mistral Le Chat"
     if t == "hermes":
         return "Hermes"
     return "Grok"
@@ -181,6 +202,12 @@ def chatProviderHomeUrl(target: object = "") -> str:
         return "https://claude.ai/new"
     if t == "deepseek":
         return "https://chat.deepseek.com/"
+    if t == "copilot":
+        return "https://copilot.microsoft.com/"
+    if t == "perplexity":
+        return "https://www.perplexity.ai/"
+    if t == "mistral":
+        return "https://chat.mistral.ai/chat"
     if t == "hermes":
         return "http://127.0.0.1:8787/"
     return "https://grok.com/"
@@ -2907,6 +2934,23 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
       'textarea[placeholder*="DeepSeek" i]',
       'textarea[placeholder*="Message" i]'
     ];
+    /* Copilot (copilot.microsoft.com): copilot.microsoft.com uses textarea#userInput. TODO: verify after first round-trip; selectors are speculative. */
+    const copilotSelectors = [
+      'textarea#userInput',
+      'textarea[placeholder*="Copilot" i]',
+      'textarea[placeholder*="Message" i]'
+    ];
+    /* Perplexity (perplexity.ai): perplexity.ai composer is #ask-input. TODO: verify after first round-trip; selectors are speculative. */
+    const perplexitySelectors = [
+      'div#ask-input[contenteditable="true"]',
+      'textarea#ask-input',
+      'textarea[placeholder*="Ask" i]'
+    ];
+    /* Mistral Le Chat (mistral.ai): chat.mistral.ai composer is a ProseMirror editor. TODO: verify after first round-trip; selectors are speculative. */
+    const mistralSelectors = [
+      'div.ProseMirror[contenteditable="true"]',
+      'textarea[placeholder*="Ask" i]'
+    ];
     /* Hermes WebUI (self-hosted, default http://127.0.0.1:8787/). Selectors taken from the
        project's own static/index.html: composer is textarea#msg, placeholder "Message Hermes…".
        Not yet round-tripped against a live instance. */
@@ -2928,6 +2972,9 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
     else if (__target === 'chatgpt') selectors = chatgptSelectors.concat(generic);
     else if (__target === 'claude') selectors = claudeSelectors.concat(generic);
     else if (__target === 'deepseek') selectors = deepseekSelectors.concat(generic);
+    else if (__target === 'copilot') selectors = copilotSelectors.concat(generic);
+    else if (__target === 'perplexity') selectors = perplexitySelectors.concat(generic);
+    else if (__target === 'mistral') selectors = mistralSelectors.concat(generic);
     else if (__target === 'hermes') selectors = hermesSelectors.concat(generic);
     else selectors = chatgptSelectors.concat(generic);
     const rows = __queryAll(selectors, document);
@@ -3196,6 +3243,9 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
     clean = clean.replace(/^chatgpt said:\s*/i, '');
     clean = clean.replace(/^grok said:\s*/i, '');  # noqa: redundant
     clean = clean.replace(/^deepseek said:\s*/i, '');
+    clean = clean.replace(/^copilot said:\s*/i, '');
+    clean = clean.replace(/^perplexity said:\s*/i, '');
+    clean = clean.replace(/^mistral said:\s*/i, '');
     return __cleanCandidateText(clean);
   }}
 
@@ -3320,6 +3370,30 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
         '.ds-markdown',
         '.ds-markdown-paragraph',
         '[class*="ds-markdown" i]'
+      ]);
+      return out;
+    }}
+    if (__target === 'copilot') {{
+      /* Copilot assistant replies. TODO: verify after first round-trip; selectors are speculative. */
+      collect([
+        '[data-content="ai-message"]',
+        '[class*="ai-message" i]'
+      ]);
+      return out;
+    }}
+    if (__target === 'perplexity') {{
+      /* Perplexity assistant replies. TODO: verify after first round-trip; selectors are speculative. */
+      collect([
+        '[id^="markdown-content"]',
+        'div.prose'
+      ]);
+      return out;
+    }}
+    if (__target === 'mistral') {{
+      /* Mistral Le Chat assistant replies. TODO: verify after first round-trip; selectors are speculative. */
+      collect([
+        '[data-message-part-type="answer"]',
+        'div.prose'
       ]);
       return out;
     }}
@@ -3965,8 +4039,8 @@ class BridgeCommandServer(QObject):
             return
         if action == "chat":
             target = normalizeChatTarget(request.get("target") or getattr(getattr(self.window, "config", None), "target", "grok"))
-            if target not in {"grok", "chatgpt", "gemini", "claude", "deepseek", "hermes"}:
-                self.respond(socket, {"ok": False, "error": f"unsupported target {target!r}; expected grok, chatgpt, gemini, claude, deepseek, or hermes"})
+            if target not in {"grok", "chatgpt", "gemini", "claude", "deepseek", "copilot", "perplexity", "mistral", "hermes"}:
+                self.respond(socket, {"ok": False, "error": f"unsupported target {target!r}; expected grok, chatgpt, gemini, claude, deepseek, copilot, perplexity, mistral, or hermes"})
                 return
             message = str(request.get("message") or "")
             attachments = request.get("attachments") if isinstance(request.get("attachments"), list) else []
