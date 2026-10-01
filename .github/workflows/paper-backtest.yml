@@ -1,0 +1,42 @@
+name: Paper backtest
+
+# Replays public Coinbase candles through the paper-only bot on a GitHub runner,
+# for when the cloud sandbox can't reach api.exchange.coinbase.com. No keys, no orders.
+
+on:
+  workflow_dispatch:
+    inputs:
+      days:
+        description: Days of history to replay
+        default: "90"
+      strategies:
+        description: Comma-separated strategy names
+        default: trend_breakout
+  push:
+    branches: ["claude/paper-backtest**"]
+    paths: [".github/workflows/paper-backtest.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run paper backtest
+        working-directory: elevated-associates/trading
+        env:
+          DAYS: ${{ inputs.days || '90' }}
+          STRATEGIES: ${{ inputs.strategies || 'trend_breakout' }}
+        run: python paperbot.py --history "$DAYS" --strategies "$STRATEGIES" --out paper_runs/ci
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-backtest
+          path: elevated-associates/trading/paper_runs/ci
