@@ -17,7 +17,7 @@ Two things live in this repo:
 ## Checks CI runs (`.github/workflows/ci.yml`)
 
 ```bash
-(cd elevated-associates/trading && python3 -m unittest test_paperbot test_alpaca_paper)
+(cd elevated-associates/trading && python3 -m unittest discover -p "test_*.py")
 python3 elevated-associates/ops/ea_status.py --check
 python3 -m py_compile start.py app.py login_bridge.py
 ```

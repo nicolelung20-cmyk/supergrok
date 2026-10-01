@@ -2,13 +2,13 @@
 
 **Audience:** an agent or engineer adding a new chat target (Claude / Copilot / Azure / future) to the SuperGrok stack.
 
-**Last updated:** 2026-05-11. Reflects the post-flatten layout (no `supergrok_bridge/` subfolder) and the Gemini + Claude bridges as reference implementations.
+**Last updated:** 2026-10-01. Reflects the post-flatten layout (no `supergrok_bridge/` subfolder). Gemini and Claude are the original reference implementations; any later target (for example Mistral) can serve as a template too.
 
 ---
 
 ## 1. Architecture in one paragraph
 
-SuperGrok is a PySide6 / Qt WebEngine app at `C:\SuperGrok\` that boots a hidden Qt window, loads a target site (e.g. `https://gemini.google.com/app`) inside a `QWebEngineView` with a persistent profile, and exposes a TCP service on `127.0.0.1:8767` that accepts JSON commands like `{action: "chat", target: "gemini", message: "..."}`. The chat handler injects JavaScript into the page (`page.runJavaScript(buildGrokDomSendScript(msg, sendId, target=...))`), which fills the composer using a React-native-setter trick, clicks the submit button, then polls the DOM for the assistant's reply. The reply is captured and returned over TCP. The same service can be hit by:
+SuperGrok is a PySide6 / Qt WebEngine app at `C:\SuperGrok\` that boots a hidden Qt window, loads a target site (for example `https://gemini.google.com/app`) inside a `QWebEngineView` with a persistent profile, and exposes a TCP service on `127.0.0.1:8767` that accepts JSON commands like `{action: "chat", target: "gemini", message: "..."}`. The chat handler injects JavaScript into the page (`page.runJavaScript(buildGrokDomSendScript(msg, sendId, target=...))`), which fills the composer using a React-native-setter trick, clicks the submit button, then polls the DOM for the assistant's reply. The reply is captured and returned over TCP. The same service can be hit by:
 
 - the SuperGrok CLI (`python start.py --chat <target> "msg"`),
 - a Python hook on the Desktop (`Desktop\claude\hooks\<target>_bridge_hook.py`),
@@ -255,16 +255,19 @@ For CBE: install the VSIX in a NEW VSCode window (never reload the host window),
 
 ---
 
-## 9. What's been done as of 2026-05-11
+## 9. Status by target
 
-| Target | CLI | DOM selectors | Hook | CBE provider | Live-tested |
-|---|---|---|---|---|---|
-| grok | ✅ | ✅ | (legacy via --chat) | grokWeb (own Chrome) | ✅ |
-| chatgpt | ✅ | ✅ | (legacy via --chat) | chatgptWeb (own Chrome) | ✅ |
-| gemini | ✅ | ✅ | gemini_bridge_hook.py | geminiBridge | ✅ round-trip (Hello → real reply, off-by-one fixed) |
-| claude | ✅ | ✅ best-effort | claude_bridge_hook.py | claudeBridge | ⏳ blocked on Anthropic SSO login (window visible) |
-| copilot | ❌ | ❌ | ❌ | ❌ | — |
-| azure | ❌ web bridge | ❌ | ❌ | ❌ (only `azure` API entry exists) | — |
+`start.py` and `app.py` are the source of truth for which targets exist (`ALL_CHAT_TARGET_ALIASES`). Do not maintain a second list here. What the repo cannot show:
+
+| Part | Where it lives | Tracked in this repo? |
+|---|---|---|
+| CLI flag, aliases, login bridge, service validation | `start.py`, `app.py`, `login_bridge.py` | Yes |
+| DOM selectors | `buildGrokDomSendScript` in `app.py` | Yes. Marked `TODO: verify after first round-trip` where speculative |
+| Desktop hook (`<target>_bridge_hook.py`) | Owner's machine | No |
+| Claude Codex Black provider entry | Owner's machine | No |
+| Live round-trip against a logged-in session | Owner's machine | No. The cloud container has no logged-in session |
+
+When you add a target, say in the PR which of these you could not verify.
 
 ---
 

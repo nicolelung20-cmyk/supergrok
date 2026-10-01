@@ -8,7 +8,7 @@ A second-by-second **paper** trading bot for Elevated Associates LLC. It polls f
 
 ```bash
 cd elevated-associates/trading
-python3 -m unittest test_paperbot test_alpaca_paper             # 26 tests, no network needed
+python3 -m unittest discover -p "test_*.py"                    # 30 tests, no network needed
 python3 paperbot.py --live --products BTC-USD,ETH-USD,SOL-USD   # Coinbase prices, simulated fills
 python3 paperbot.py --synthetic --ticks 20000                   # offline sanity check
 python3 alpaca_paper.py --check                                 # verify Alpaca paper keys
