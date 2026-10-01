@@ -9,6 +9,7 @@ Usage:
     python paperbot.py --live --products BTC-USD,ETH-USD,SOL-USD   # poll Coinbase every second
     python paperbot.py --synthetic --ticks 20000                   # offline random-walk run
     python paperbot.py --replay prices.csv                         # CSV rows: ts,product,bid,ask
+    python paperbot.py --history 90 --strategies trend_breakout    # 90 days of hourly candles in seconds
 
 Outputs (in --out, default ./paper_runs/<timestamp>/):
     ledger.jsonl   every fill, stop and kill-switch event
@@ -35,6 +36,7 @@ from pathlib import Path
 PAPER_ONLY = True
 
 COINBASE_TICKER = "https://api.exchange.coinbase.com/products/{}/ticker"
+COINBASE_CANDLES = "https://api.exchange.coinbase.com/products/{}/candles?granularity={}&start={}&end={}"
 
 
 @dataclass
@@ -367,6 +369,37 @@ def synthetic_feed(products, ticks, seed=7, vol=0.0008, spread_bps=1.0):
             yield Tick(t0 + i, p, prices[p] - half, prices[p] + half)
 
 
+def _get_json(url):
+    req = urllib.request.Request(url, headers={"User-Agent": "ea-paperbot/1.0"})
+    with urllib.request.urlopen(req, timeout=15) as r:
+        return json.load(r)
+
+
+def coinbase_history_feed(products, days, granularity=3600, end=None, fetch=_get_json):
+    """Replay `days` of public Coinbase candles as ticks at each candle's close.
+
+    The gate measures time from tick timestamps, so 90 days of history replays in seconds.
+    Coinbase returns at most 300 candles per request, newest first; rows are merged by time.
+    """
+    end = int(end if end is not None else time.time()) // granularity * granularity
+    start = end - int(days * 86_400) - granularity  # one extra candle so first-to-last spans `days`
+    rows = []
+    for product in products:
+        seen = set()
+        hi = end
+        while hi > start:
+            lo = max(start, hi - 300 * granularity)
+            iso = lambda t: datetime.fromtimestamp(t, timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+            for c in fetch(COINBASE_CANDLES.format(product, granularity, iso(lo), iso(hi))):
+                ts, close = int(c[0]), float(c[4])
+                if start <= ts < end and ts not in seen:
+                    seen.add(ts)
+                    rows.append((ts, product, close))
+            hi = lo
+    for ts, product, close in sorted(rows):
+        yield Tick(float(ts), product, close, close)
+
+
 def replay_feed(path):
     with open(path, newline="", encoding="utf-8") as f:
         for row in csv.reader(f):
@@ -403,6 +436,13 @@ def main():
     src.add_argument("--live", action="store_true", help="poll Coinbase public tickers")
     src.add_argument("--synthetic", action="store_true", help="offline random walk")
     src.add_argument("--replay", metavar="CSV", help="replay ts,product,bid,ask rows")
+    src.add_argument("--history", type=float, metavar="DAYS", help="replay DAYS of public Coinbase candles")
+    ap.add_argument("--granularity", type=int, default=3600, choices=(60, 300, 900, 3600, 21600, 86400),
+                    help="candle seconds for --history")
+    ap.add_argument("--bar-ticks", type=int, default=None,
+                    help="ticks per trend_breakout bar (default: one hour of ticks for the chosen feed)")
+    ap.add_argument("--gate-min-days", type=float, default=Config.gate_min_days,
+                    help="days of paper data the gate requires (measured from tick timestamps)")
     ap.add_argument("--products", default="BTC-USD,ETH-USD,SOL-USD")
     ap.add_argument("--strategies", default=",".join(STRATEGIES))
     ap.add_argument("--interval", type=float, default=1.0, help="seconds between live polls")
@@ -414,13 +454,19 @@ def main():
     products = [p.strip() for p in args.products.split(",") if p.strip()]
     out = Path(args.out or f"paper_runs/{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}")
     out.mkdir(parents=True, exist_ok=True)
-    broker = PaperBroker(Config(taker_fee=args.fee), ledger_path=out / "ledger.jsonl")
-    strategies = [STRATEGIES[s.strip()]() for s in args.strategies.split(",")]
+    broker = PaperBroker(Config(taker_fee=args.fee, gate_min_days=args.gate_min_days),
+                         ledger_path=out / "ledger.jsonl")
+    tick_seconds = args.granularity if args.history else args.interval
+    bar_ticks = args.bar_ticks or max(1, round(3600 / tick_seconds))
+    strategies = [STRATEGIES[s.strip()](bar_ticks=bar_ticks) if s.strip() == "trend_breakout"
+                  else STRATEGIES[s.strip()]() for s in args.strategies.split(",")]
 
     if args.live:
         feed = coinbase_feed(products, args.interval, args.ticks)
     elif args.synthetic:
         feed = synthetic_feed(products, args.ticks or 20_000)
+    elif args.history:
+        feed = coinbase_history_feed(products, args.history, args.granularity)
     else:
         feed = replay_feed(args.replay)
 
