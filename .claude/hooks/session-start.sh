@@ -11,7 +11,7 @@ if [ "${CLAUDE_CODE_REMOTE:-}" = "true" ]; then
   python3 -m pip install --quiet --disable-pip-version-check -r requirements.txt >/dev/null 2>&1 || fail+=("dependency install")
 fi
 
-(cd elevated-associates/trading 2>/dev/null && python3 -m unittest -q test_paperbot test_alpaca_paper >/dev/null 2>&1) || fail+=("trading tests")
+(cd elevated-associates/trading 2>/dev/null && python3 -m unittest discover -q -p "test_*.py" >/dev/null 2>&1) || fail+=("trading tests")
 python3 elevated-associates/ops/ea_status.py --check >/dev/null 2>&1 || fail+=("registry check")
 python3 -m py_compile start.py app.py login_bridge.py >/dev/null 2>&1 || fail+=("bridge compile")
 
