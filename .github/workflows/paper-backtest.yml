@@ -1,0 +1,61 @@
+name: Paper backtest
+
+# Replays public Coinbase candles through the paper-only bot on a GitHub runner,
+# for when the cloud sandbox can't reach api.exchange.coinbase.com. No keys, no orders.
+# Runs daily across every strategy so the scorecard stays current without anyone starting it.
+
+on:
+  schedule:
+    - cron: "17 6 * * *"
+  workflow_dispatch:
+    inputs:
+      days:
+        description: Days of history to replay
+        default: "90"
+      products:
+        description: Comma-separated Coinbase products
+        default: BTC-USD,ETH-USD,SOL-USD
+  push:
+    branches: ["claude/paper-backtest**"]
+    paths: [".github/workflows/paper-backtest.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  backtest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        strategy: [trend_breakout, ema_cross, zscore_reversion]
+        days: ["90", "180"]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run paper backtest
+        working-directory: elevated-associates/trading
+        env:
+          DAYS: ${{ inputs.days || matrix.days }}
+          PRODUCTS: ${{ inputs.products || 'BTC-USD,ETH-USD,SOL-USD' }}
+          STRATEGY: ${{ matrix.strategy }}
+        run: |
+          python paperbot.py --history "$DAYS" --products "$PRODUCTS" --strategies "$STRATEGY" --out paper_runs/ci
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          s = json.load(open("paper_runs/ci/summary.json"))
+          g = s["gate"]["checks"]
+          print(f"### {os.environ['STRATEGY']} · {os.environ['DAYS']} days · {os.environ['PRODUCTS']}")
+          print(f"trades {s['closed_trades']} · win {s['win_rate_pct']}% · expectancy {s['expectancy']} · "
+                f"max DD {s['max_drawdown_pct']}% · return {s['return_pct']}% · fees {s['fees_paid']}")
+          print(f"gate: {'PASS' if all(g.values()) else 'not passed'} {g}")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-backtest-${{ matrix.strategy }}-${{ matrix.days }}d
+          path: elevated-associates/trading/paper_runs/ci
