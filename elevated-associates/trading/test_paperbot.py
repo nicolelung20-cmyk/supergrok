@@ -147,5 +147,38 @@ class EndToEndTest(unittest.TestCase):
         self.assertGreaterEqual(out["max_drawdown_pct"], 0)
 
 
+class HistoryFeedTest(unittest.TestCase):
+    def _fake(self, calls):
+        from datetime import datetime
+        from urllib.parse import parse_qs, urlparse
+
+        def fetch(url):
+            calls.append(url)
+            q = parse_qs(urlparse(url).query)
+            g = int(q["granularity"][0])
+            lo, hi = (int(datetime.strptime(q[k][0], "%Y-%m-%dT%H:%M:%SZ").replace(tzinfo=paperbot.timezone.utc).timestamp())
+                      for k in ("start", "end"))
+            # newest first, like Coinbase; [time, low, high, open, close, volume]
+            return [[t, 1, 1, 1, 100 + t / g % 7, 1] for t in range(hi, lo - 1, -g)]
+        return fetch
+
+    def test_pages_300_candles_and_merges_products_in_time_order(self):
+        calls = []
+        end = 1_700_000_000 // 3600 * 3600
+        ticks = list(paperbot.coinbase_history_feed(["BTC-USD", "ETH-USD"], 30, 3600, end=end, fetch=self._fake(calls)))
+        self.assertEqual(len(calls), 2 * 3)                    # 720 hourly candles = 3 pages per product
+        self.assertEqual(len(ticks), 2 * 721)                  # 30 days span + 1 candle, no page-edge duplicates
+        self.assertEqual([t.ts for t in ticks], sorted(t.ts for t in ticks))
+        self.assertEqual(ticks[-1].ts - ticks[0].ts, 30 * 86_400)
+        self.assertTrue(all(t.bid == t.ask for t in ticks))
+
+    def test_ninety_days_of_history_meets_gate_day_check(self):
+        end = 1_700_000_000 // 3600 * 3600
+        b = PaperBroker(Config())
+        run(paperbot.coinbase_history_feed(["BTC-USD"], 90, 3600, end=end, fetch=self._fake([])), [], b)
+        self.assertTrue(b.gate()["checks"]["days_running"])
+        self.assertFalse(b.gate()["checks"]["closed_trades"])  # days alone never pass the gate
+
+
 if __name__ == "__main__":
     unittest.main()

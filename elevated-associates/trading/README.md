@@ -73,6 +73,22 @@ Risk policy (ELE-39), enforced in `Config` and tested:
 2. **Fewer, larger-conviction trades**: longer timeframes where moves beat the fees.
 3. **Measure before believing**: run live paper for weeks, not minutes.
 
+## Fast answers: replay history instead of waiting
+
+The gate counts days from the price data's timestamps, not the wall clock, so 90 days of
+public Coinbase candles replay in under a second:
+
+```bash
+python3 paperbot.py --history 90 --strategies trend_breakout            # hourly candles, 1 bar = 1 candle
+python3 paperbot.py --history 90 --granularity 300 --strategies trend_breakout   # 5-minute candles, 12 per bar
+```
+
+**Timeframe check:** on the live feed `trend_breakout` builds one-hour bars from one-second
+ticks and needs 20 bars before its first signal, so a live run shorter than about 21 hours
+cannot trade at all. `--bar-ticks` sets ticks per bar; `--gate-min-days` sets the gate window.
+A history replay is a backtest on past prices with fills at each candle's close, so it is
+evidence for or against a strategy, not a substitute for the live paper record the charter asks for.
+
 ## The gate to real money (from [CHARTER.md](../CHARTER.md))
 
 All four are required, and none can be waived by an agent:
