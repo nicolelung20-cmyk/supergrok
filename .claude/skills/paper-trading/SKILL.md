@@ -10,7 +10,7 @@ Everything here is **paper only**. `paperbot.py` has no order path and reads no 
 ## Test (always, before committing)
 
 ```bash
-cd elevated-associates/trading && python3 -m unittest test_paperbot test_alpaca_paper
+cd elevated-associates/trading && python3 -m unittest discover -p "test_*.py"
 ```
 
 No network or packages needed. Add a test for every behaviour change.
