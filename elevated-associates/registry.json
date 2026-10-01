@@ -99,14 +99,14 @@
       "doc": "streams/trading-and-web3.md"
     },
     {
-      "id": "agency-roni",
-      "name": "Agency Roni",
-      "model": "To be defined — scope, client and pricing not yet set",
+      "id": "agent-robin",
+      "name": "Agent Robin — dark web OSINT agent",
+      "model": "Internal research agent over the Robin MCP server (nicolelung20-cmyk/robin). Revenue model not yet defined",
       "status": "exploring",
       "revenue_potential": "unknown",
-      "automation": "None yet",
+      "automation": "Agent definition merged in robin#5; no scheduled runs",
       "blocked_on": [],
-      "doc": "streams/agency-roni.md"
+      "doc": "streams/agent-robin.md"
     }
   ],
   "agents": [
