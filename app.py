@@ -120,6 +120,7 @@ CHATGPT_TARGET_ALIASES = {"chatgpt", "chatgtp", "gtp", "gpt", "openai"}
 GROK_TARGET_ALIASES = {"grok", "supergrok", "xai"}
 GEMINI_TARGET_ALIASES = {"gemini", "gem", "gem-bridge", "gembridge", "google", "googleai", "bard"}
 CLAUDE_TARGET_ALIASES = {"claude", "anthropic", "claudeai", "claude-bridge", "claudebridge", "cl"}
+DEEPSEEK_TARGET_ALIASES = {"deepseek", "deep-seek", "deepseek-bridge", "deepseekbridge", "dsk"}
 
 
 def normalizeChatTarget(value: object = "") -> str:
@@ -132,6 +133,8 @@ def normalizeChatTarget(value: object = "") -> str:
         return "gemini"
     if target in CLAUDE_TARGET_ALIASES:
         return "claude"
+    if target in DEEPSEEK_TARGET_ALIASES:
+        return "deepseek"
     return target or "grok"
 
 
@@ -143,6 +146,8 @@ def chatTargetFromUrl(url: object = "") -> str:
         return "gemini"
     if "claude.ai" in text:
         return "claude"
+    if "deepseek.com" in text:
+        return "deepseek"
     return "grok"
 
 
@@ -154,6 +159,8 @@ def chatProviderLabel(target: object = "") -> str:
         return "Gemini"
     if t == "claude":
         return "Claude"
+    if t == "deepseek":
+        return "DeepSeek"
     return "Grok"
 
 
@@ -165,6 +172,8 @@ def chatProviderHomeUrl(target: object = "") -> str:
         return "https://gemini.google.com/app"
     if t == "claude":
         return "https://claude.ai/new"
+    if t == "deepseek":
+        return "https://chat.deepseek.com/"
     return "https://grok.com/"
 
 
@@ -2882,6 +2891,13 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
       'fieldset div.ProseMirror[contenteditable="true"]',
       'div.ProseMirror[contenteditable="true"]'
     ];
+    /* DeepSeek (chat.deepseek.com) uses a plain textarea#chat-input composer.
+       TODO: verify after first round-trip — current selectors are speculative. */
+    const deepseekSelectors = [
+      'textarea#chat-input',
+      'textarea[placeholder*="DeepSeek" i]',
+      'textarea[placeholder*="Message" i]'
+    ];
     const generic = [
       '[data-testid="composer"] [contenteditable="true"]',
       'form [contenteditable="true"]',
@@ -2895,6 +2911,7 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
     if (__target === 'gemini') selectors = geminiSelectors.concat(generic);
     else if (__target === 'chatgpt') selectors = chatgptSelectors.concat(generic);
     else if (__target === 'claude') selectors = claudeSelectors.concat(generic);
+    else if (__target === 'deepseek') selectors = deepseekSelectors.concat(generic);
     else selectors = chatgptSelectors.concat(generic);
     const rows = __queryAll(selectors, document);
     return rows.length ? rows[0] : null;
@@ -3160,6 +3177,7 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
     clean = clean.replace(/^you said:\s*/i, '');
     clean = clean.replace(/^chatgpt said:\s*/i, '');
     clean = clean.replace(/^grok said:\s*/i, '');  # noqa: redundant
+    clean = clean.replace(/^deepseek said:\s*/i, '');
     return __cleanCandidateText(clean);
   }}
 
@@ -3263,6 +3281,17 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
         '[data-test-render-count] .font-claude-message',
         'div.font-claude-message .grid-cols-1',
         '[data-is-streaming]'
+      ]);
+      return out;
+    }}
+    if (__target === 'deepseek') {{
+      /* DeepSeek (chat.deepseek.com) renders assistant replies as .ds-markdown blocks.
+         TODO: verify after first round-trip — current selectors are speculative
+         (DeepThink reasoning may share the class and need excluding). */
+      collect([
+        '.ds-markdown',
+        '.ds-markdown-paragraph',
+        '[class*="ds-markdown" i]'
       ]);
       return out;
     }}
@@ -3908,8 +3937,8 @@ class BridgeCommandServer(QObject):
             return
         if action == "chat":
             target = normalizeChatTarget(request.get("target") or getattr(getattr(self.window, "config", None), "target", "grok"))
-            if target not in {"grok", "chatgpt", "gemini", "claude"}:
-                self.respond(socket, {"ok": False, "error": f"unsupported target {target!r}; expected grok, chatgpt, gemini, or claude"})
+            if target not in {"grok", "chatgpt", "gemini", "claude", "deepseek"}:
+                self.respond(socket, {"ok": False, "error": f"unsupported target {target!r}; expected grok, chatgpt, gemini, claude, or deepseek"})
                 return
             message = str(request.get("message") or "")
             attachments = request.get("attachments") if isinstance(request.get("attachments"), list) else []
