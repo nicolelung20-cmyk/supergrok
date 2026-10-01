@@ -97,6 +97,16 @@
       "automation": "None — retired 2026-09-09 at owner's request; do not resume",
       "blocked_on": [],
       "doc": "streams/trading-and-web3.md"
+    },
+    {
+      "id": "agency-roni",
+      "name": "Agency Roni",
+      "model": "To be defined — scope, client and pricing not yet set",
+      "status": "exploring",
+      "revenue_potential": "unknown",
+      "automation": "None yet",
+      "blocked_on": [],
+      "doc": "streams/agency-roni.md"
     }
   ],
   "agents": [
