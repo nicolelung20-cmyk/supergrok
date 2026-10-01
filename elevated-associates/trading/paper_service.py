@@ -4,12 +4,15 @@ Paper only. It reuses paperbot's simulated broker, so there is no order path and
 
     python3 paper_service.py            # serves on $PORT (default 8080)
 
-GET /         the latest summary.json (scorecard, gate status)
-GET /healthz  "ok" while the trading thread is alive
+GET /              mobile dashboard (paper_dashboard.html), refreshes every 5 seconds
+GET /api/live      scorecard, live prices, open positions, recent fills, equity curve
+GET /summary.json  the latest summary.json (scorecard, gate status)
+GET /healthz       "ok" while the trading thread is alive
 
 On free hosts that sleep without traffic (Render), set KEEPALIVE_URL (Render sets
 RENDER_EXTERNAL_URL automatically) and the service pings its own public URL every 10 minutes.
 """
+import collections
 import json
 import os
 import threading
@@ -24,8 +27,11 @@ PRODUCTS = [p.strip() for p in os.environ.get("PAPER_PRODUCTS", "BTC-USD,ETH-USD
 STRATEGY_NAMES = [s.strip() for s in os.environ.get("PAPER_STRATEGIES", ",".join(paperbot.STRATEGIES)).split(",") if s.strip()]
 OUT = Path(os.environ.get("PAPER_OUT", "paper_runs/service"))
 KEEPALIVE_SECONDS = 600
+SAMPLE_SECONDS = 60
+DASHBOARD = Path(__file__).with_name("paper_dashboard.html")
 
-state = {"started": time.time(), "thread": None, "error": None}
+state = {"started": time.time(), "thread": None, "error": None, "broker": None,
+         "equity_history": collections.deque(maxlen=1440)}
 
 
 def build(out=OUT, interval=1.0):
@@ -39,6 +45,7 @@ def build(out=OUT, interval=1.0):
 
 def trade_forever(feed_factory=None, out=OUT):
     broker, strategies = build(out)
+    state["broker"] = broker
     feed = feed_factory() if feed_factory else paperbot.coinbase_feed(PRODUCTS, 1.0)
     try:
         paperbot.run(feed, strategies, broker, summary_path=out / "summary.json", stop_file=out / "STOP")
@@ -47,20 +54,79 @@ def trade_forever(feed_factory=None, out=OUT):
         raise
 
 
-def summary_payload(out=OUT):
-    path = out / "summary.json"
+def summary_payload(out=None):
+    path = (out or OUT) / "summary.json"
     body = json.loads(path.read_text()) if path.exists() else {"paper_only": True, "status": "warming up"}
     body["uptime_hours"] = round((time.time() - state["started"]) / 3600, 2)
     body["products"] = PRODUCTS
     return body
 
 
+def recent_events(out=None, n=20):
+    path = (out or OUT) / "ledger.jsonl"
+    if not path.exists():
+        return []
+    with open(path, "rb") as f:
+        f.seek(0, 2)
+        start = max(0, f.tell() - 16_384)
+        f.seek(start)
+        lines = f.read().decode("utf-8", "ignore").splitlines()[1 if start else 0:]  # drop a cut-off first line
+    events = []
+    for line in lines:
+        try:
+            e = json.loads(line)
+        except ValueError:
+            continue
+        if e.get("event") in ("buy", "sell"):
+            events.append({k: e.get(k) for k in ("ts", "event", "reason", "product", "strategy", "price", "pnl")})
+    return events[-n:][::-1]
+
+
+def _read_live(fn, attempts=5):
+    """Read broker state owned by the trading thread; retry if a dict changes size mid-read."""
+    for _ in range(attempts):
+        try:
+            return fn()
+        except RuntimeError:
+            time.sleep(0.01)
+    return fn()
+
+
+def live_payload(out=None):
+    out = out or OUT
+    broker = state["broker"]
+    body = {"summary": _read_live(broker.summary) if broker is not None else summary_payload(out), "uptime_hours": round((time.time() - state["started"]) / 3600, 2),
+            "equity_history": list(state["equity_history"]), "recent_events": recent_events(out),
+            "prices": [], "positions": []}
+    if broker is not None:
+        mids = _read_live(lambda: dict(broker.last_mid))
+        body["prices"] = [{"product": p, "mid": round(mids[p], 6)} for p in PRODUCTS if p in mids]
+        for (product, strategy), pos in _read_live(lambda: list(broker.positions.items())):
+            mark = mids.get(product, pos.entry)
+            cost = pos.qty * pos.entry / (1 - pos.fee_rate)
+            body["positions"].append({"product": product, "strategy": strategy, "entry": round(pos.entry, 6),
+                                      "mark": round(mark, 6), "unrealized": round(pos.qty * mark - cost, 4)})
+    return body
+
+
+def sample_equity():
+    while True:
+        broker = state["broker"]
+        if broker is not None and broker.last_mid:
+            state["equity_history"].append([int(time.time()), round(_read_live(broker.equity), 2)])
+        time.sleep(SAMPLE_SECONDS)
+
+
 class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
-        if self.path.startswith("/healthz"):
+        if self.path in ("/", "/index.html"):
+            self._send(200, "text/html; charset=utf-8", DASHBOARD.read_bytes())
+        elif self.path.startswith("/api/live"):
+            self._send(200, "application/json", json.dumps(live_payload()).encode())
+        elif self.path.startswith("/healthz"):
             alive = state["thread"] is not None and state["thread"].is_alive()
             self._send(200 if alive else 503, "text/plain", b"ok" if alive else f"down: {state['error']}".encode())
-        elif self.path in ("/", "/status", "/summary.json"):
+        elif self.path in ("/status", "/summary.json"):
             self._send(200, "application/json", json.dumps(summary_payload(), indent=2).encode())
         else:
             self._send(404, "text/plain", b"not found")
@@ -88,6 +154,7 @@ def keepalive(url):
 def main():
     state["thread"] = threading.Thread(target=trade_forever, daemon=True)
     state["thread"].start()
+    threading.Thread(target=sample_equity, daemon=True).start()
     url = os.environ.get("KEEPALIVE_URL") or os.environ.get("RENDER_EXTERNAL_URL")
     if url:
         threading.Thread(target=keepalive, args=(url,), daemon=True).start()
