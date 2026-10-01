@@ -1,0 +1,48 @@
+name: Paper live session
+
+# Runs the paper bot against live public Coinbase prices for ~5.5 hours on a GitHub runner.
+# Simulated fills only: paperbot.py has no order path and reads no keys.
+
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "41 */6 * * *"
+  push:
+    branches: ["claude/paper-backtest**"]
+    paths: [".github/workflows/paper-live.yml"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: paper-live
+  cancel-in-progress: false
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Live paper session (SIGINT after 5.5h writes the final summary)
+        working-directory: elevated-associates/trading
+        run: |
+          timeout -s INT 19800 python paperbot.py --live --products BTC-USD,ETH-USD,SOL-USD --out paper_runs/live > run.log 2>&1 || true
+          tail -n 60 run.log
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          s = json.load(open("paper_runs/live/summary.json"))
+          print(f"### Live paper session: trades {s['closed_trades']} · win {s['win_rate_pct']}% · "
+                f"expectancy {s['expectancy']} · max DD {s['max_drawdown_pct']}% · return {s['return_pct']}% · fees {s['fees_paid']}")
+          print(f"per strategy: {s['per_strategy']}")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: paper-live-${{ github.run_id }}
+          path: elevated-associates/trading/paper_runs/live
