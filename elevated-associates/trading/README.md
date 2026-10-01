@@ -25,15 +25,15 @@ It needs only Python 3.9+ and no packages. Each run writes `paper_runs/<time>/le
 
 Run it on a machine you own (your Mac is free). One-time setup:
 
-1. Create a free Alpaca **paper** account and generate paper API keys yourself (agents can't create accounts or keys).
-2. Put the keys in your shell profile, never in chat or git: `export ALPACA_API_KEY_ID=...` and `export ALPACA_API_SECRET_KEY=...`.
-3. `./run_paper.sh` checks the keys and the paper account, then runs `trend_breakout` on BTC/USD (override with `PAPER_PRODUCTS` / `PAPER_STRATEGY`). On a Mac it uses `caffeinate` so the machine stays awake.
-4. `./run_paper.sh status` prints the latest scorecard, and `./run_paper.sh stop` is the kill-switch: it closes every position and exits.
+1. Nothing else is required: with no keys it runs the keyless simulation (public Coinbase prices, simulated fills at the real fee, spread and slippage). It produces the same scorecard and gate status as the Alpaca mode.
+2. `./run_paper.sh` runs `trend_breakout` on BTC/USD (override with `PAPER_PRODUCTS` / `PAPER_STRATEGY`). On a Mac it uses `caffeinate` so the machine stays awake.
+3. `./run_paper.sh status` prints the latest scorecard, and `./run_paper.sh stop` is the kill-switch: it closes every position and exits.
+4. Optional, only if you want orders mirrored into a broker's paper account: set `ALPACA_API_KEY_ID` and `ALPACA_API_SECRET_KEY` (paper keys) in your shell, never in chat or git. The script then uses Alpaca automatically.
 
 Notes:
 - Leave it running. The gate's "days running" counts from process start, so a restart resets that clock (the ledger still appends).
 - `trend_breakout` builds hourly bars and needs about 20 bars of history before its first trade, so expect the first trade after roughly a day. This is also why a scheduled GitHub Actions run (short, fresh each time) can't run this strategy.
-- Paper only: the client refuses any host except `paper-api.alpaca.markets`. Going live is a separate decision after the gate below.
+- Paper only: the Alpaca client refuses any host except `paper-api.alpaca.markets`, and the keyless mode has no order path at all. Going live is a separate decision after the gate below.
 
 ## Alpaca paper (Linear ELE-40)
 

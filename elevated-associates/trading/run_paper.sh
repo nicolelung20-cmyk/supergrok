@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs the Alpaca PAPER bot (trend_breakout) on this machine until you create the STOP file.
-# Keys come from your shell; this script never prints or stores them.
-#   export ALPACA_API_KEY_ID=...   export ALPACA_API_SECRET_KEY=...   (paper keys only)
+# Needs NO keys: with none set it runs the keyless simulation (public Coinbase prices, simulated fills).
+# Optional: export ALPACA_API_KEY_ID and ALPACA_API_SECRET_KEY (paper keys) to also mirror orders to Alpaca paper.
+# This script never prints or stores keys.
 #   ./run_paper.sh            start (or restart)
 #   ./run_paper.sh stop       closes every position and exits the bot (kill-switch)
 #   ./run_paper.sh status     prints the latest summary.json
@@ -24,20 +25,24 @@ case "${1:-start}" in
   *) echo "usage: $0 [start|stop|status]" >&2; exit 2 ;;
 esac
 
-for var in ALPACA_API_KEY_ID ALPACA_API_SECRET_KEY; do
-  if [ -z "${!var:-}" ]; then
-    echo "$var is not set. Create a free Alpaca PAPER account, generate paper keys, and export both." >&2
-    exit 1
-  fi
-done
-
-echo "Checking the paper account..."
-python3 alpaca_paper.py --check
+if [ -n "${ALPACA_API_KEY_ID:-}" ] && [ -n "${ALPACA_API_SECRET_KEY:-}" ]; then
+  MODE=alpaca
+  echo "Alpaca paper keys found. Checking the paper account..."
+  python3 alpaca_paper.py --check
+else
+  MODE=simulated
+  echo "No Alpaca keys set. Running keyless: public Coinbase prices, simulated fills, same scorecard."
+fi
 
 mkdir -p "$OUT"
 rm -f "$OUT/STOP"
-echo "Starting $STRATEGY on $PRODUCTS. Output: $OUT (stop with: $0 stop)"
-if command -v caffeinate >/dev/null 2>&1; then
-  exec caffeinate -i python3 alpaca_paper.py --products "$PRODUCTS" --strategies "$STRATEGY" --out "$OUT"
+echo "Starting $STRATEGY on $PRODUCTS ($MODE). Output: $OUT (stop with: $0 stop)"
+if [ "$MODE" = alpaca ]; then
+  CMD=(python3 alpaca_paper.py --products "$PRODUCTS" --strategies "$STRATEGY" --out "$OUT")
+else
+  CMD=(python3 paperbot.py --live --products "${PRODUCTS//\//-}" --strategies "$STRATEGY" --out "$OUT")
 fi
-exec python3 alpaca_paper.py --products "$PRODUCTS" --strategies "$STRATEGY" --out "$OUT"
+if command -v caffeinate >/dev/null 2>&1; then
+  exec caffeinate -i "${CMD[@]}"
+fi
+exec "${CMD[@]}"
