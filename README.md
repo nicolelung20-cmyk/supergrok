@@ -2,13 +2,13 @@
 
 **One desktop window for every chat AI. CLI for headless prompts. Real logged-in sessions, no API keys.**
 
-SuperGrok Bridge is a PySide6 + Qt WebEngine shell that hosts the web versions of **Grok**, **ChatGPT**, **Gemini**, and **Claude** inside a single split-pane desktop window with a persistent per-provider cookie profile. From the command line you can fire a prompt at any of them and get the answer back on stdout — using your own logged-in session, not a paid API.
+SuperGrok Bridge is a PySide6 + Qt WebEngine shell that hosts the web versions of **Grok**, **ChatGPT**, **Gemini**, **Claude**, and **DeepSeek** inside a single split-pane desktop window with a persistent per-provider cookie profile. From the command line you can fire a prompt at any of them and get the answer back on stdout — using your own logged-in session, not a paid API.
 
 > This project is intentionally built around your normal logged-in browser session. It does **not** bypass login, CAPTCHA, subscription checks, rate limits, or any access controls. You log in once through the visible bridge window; your cookies persist; the CLI reuses them.
 
 ## Highlights
 
-- 🤖 **Four providers in one shell** — Grok, ChatGPT (incl. `--gpt`/`--gtp` aliases), Gemini, Claude.
+- 🤖 **Five providers in one shell** — Grok, ChatGPT (incl. `--gpt`/`--gtp` aliases), Gemini, Claude, DeepSeek (`--deepseek`/`--dsk`).
 - 💬 **CLI chat** — `python start.py --chat "hello"` returns the answer to stdout. Attach files with `--attach`.
 - 🧠 **Resident bridge service** — `--serve-bridge` keeps the QtWebEngine warm and logged-in for instant CLI responses.
 - 🎨 **Polished UI** — provider-aware toolbar/title, dark theme, visible resizable splitter handles, Prism-highlighted **View Source** with one-click plain fallback.
