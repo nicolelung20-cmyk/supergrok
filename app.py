@@ -124,6 +124,7 @@ DEEPSEEK_TARGET_ALIASES = {"deepseek", "deep-seek", "deepseek-bridge", "deepseek
 COPILOT_TARGET_ALIASES = {"copilot", "ms-copilot", "copilot-bridge", "copilotbridge", "cop"}
 PERPLEXITY_TARGET_ALIASES = {"perplexity", "pplx", "ppx", "perplexity-bridge", "perplexitybridge"}
 MISTRAL_TARGET_ALIASES = {"mistral", "lechat", "le-chat", "mistral-bridge", "mistralbridge"}
+HUGGINGCHAT_TARGET_ALIASES = {"huggingchat", "hugging-chat", "hfchat", "hf-chat", "huggingface", "hugging-face", "huggingchat-bridge", "huggingchatbridge"}
 HERMES_TARGET_ALIASES = {"hermes", "hermes-agent", "hermes-webui", "hermes-bridge", "hermesbridge"}
 
 
@@ -145,6 +146,8 @@ def normalizeChatTarget(value: object = "") -> str:
         return "perplexity"
     if target in MISTRAL_TARGET_ALIASES:
         return "mistral"
+    if target in HUGGINGCHAT_TARGET_ALIASES:
+        return "huggingchat"
     if target in HERMES_TARGET_ALIASES:
         return "hermes"
     return target or "grok"
@@ -166,6 +169,8 @@ def chatTargetFromUrl(url: object = "") -> str:
         return "perplexity"
     if "mistral.ai" in text:
         return "mistral"
+    if "huggingface.co" in text:
+        return "huggingchat"
     if "hermes" in text or ":8787" in text:
         return "hermes"
     return "grok"
@@ -187,6 +192,8 @@ def chatProviderLabel(target: object = "") -> str:
         return "Perplexity"
     if t == "mistral":
         return "Mistral Le Chat"
+    if t == "huggingchat":
+        return "HuggingChat"
     if t == "hermes":
         return "Hermes"
     return "Grok"
@@ -208,6 +215,8 @@ def chatProviderHomeUrl(target: object = "") -> str:
         return "https://www.perplexity.ai/"
     if t == "mistral":
         return "https://chat.mistral.ai/chat"
+    if t == "huggingchat":
+        return "https://huggingface.co/chat/"
     if t == "hermes":
         return "http://127.0.0.1:8787/"
     return "https://grok.com/"
@@ -2951,6 +2960,12 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
       'div.ProseMirror[contenteditable="true"]',
       'textarea[placeholder*="Ask" i]'
     ];
+    /* HuggingChat (huggingface.co/chat): the composer is a plain textarea in the chat form. TODO: verify after first round-trip; selectors are speculative. */
+    const huggingchatSelectors = [
+      'form textarea[placeholder*="Ask" i]',
+      'textarea[placeholder*="Ask" i]',
+      'form textarea'
+    ];
     /* Hermes WebUI (self-hosted, default http://127.0.0.1:8787/). Selectors taken from the
        project's own static/index.html: composer is textarea#msg, placeholder "Message Hermes…".
        Not yet round-tripped against a live instance. */
@@ -2975,6 +2990,7 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
     else if (__target === 'copilot') selectors = copilotSelectors.concat(generic);
     else if (__target === 'perplexity') selectors = perplexitySelectors.concat(generic);
     else if (__target === 'mistral') selectors = mistralSelectors.concat(generic);
+    else if (__target === 'huggingchat') selectors = huggingchatSelectors.concat(generic);
     else if (__target === 'hermes') selectors = hermesSelectors.concat(generic);
     else selectors = chatgptSelectors.concat(generic);
     const rows = __queryAll(selectors, document);
@@ -3246,6 +3262,7 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
     clean = clean.replace(/^copilot said:\s*/i, '');
     clean = clean.replace(/^perplexity said:\s*/i, '');
     clean = clean.replace(/^mistral said:\s*/i, '');
+    clean = clean.replace(/^huggingchat said:\s*/i, '');
     return __cleanCandidateText(clean);
   }}
 
@@ -3393,6 +3410,14 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
       /* Mistral Le Chat assistant replies. TODO: verify after first round-trip; selectors are speculative. */
       collect([
         '[data-message-part-type="answer"]',
+        'div.prose'
+      ]);
+      return out;
+    }}
+    if (__target === 'huggingchat') {{
+      /* HuggingChat assistant replies. TODO: verify after first round-trip; selectors are speculative. */
+      collect([
+        '[data-message-role="assistant"]',
         'div.prose'
       ]);
       return out;
@@ -4039,8 +4064,8 @@ class BridgeCommandServer(QObject):
             return
         if action == "chat":
             target = normalizeChatTarget(request.get("target") or getattr(getattr(self.window, "config", None), "target", "grok"))
-            if target not in {"grok", "chatgpt", "gemini", "claude", "deepseek", "copilot", "perplexity", "mistral", "hermes"}:
-                self.respond(socket, {"ok": False, "error": f"unsupported target {target!r}; expected grok, chatgpt, gemini, claude, deepseek, copilot, perplexity, mistral, or hermes"})
+            if target not in {"grok", "chatgpt", "gemini", "claude", "deepseek", "copilot", "perplexity", "mistral", "huggingchat", "hermes"}:
+                self.respond(socket, {"ok": False, "error": f"unsupported target {target!r}; expected grok, chatgpt, gemini, claude, deepseek, copilot, perplexity, mistral, huggingchat, or hermes"})
                 return
             message = str(request.get("message") or "")
             attachments = request.get("attachments") if isinstance(request.get("attachments"), list) else []
