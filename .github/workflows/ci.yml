@@ -21,7 +21,7 @@ jobs:
           python-version: "3.11"
       - name: Paper trading tests
         working-directory: elevated-associates/trading
-        run: python -m unittest -v test_paperbot test_alpaca_paper
+        run: python -m unittest -v test_paperbot test_alpaca_paper test_jesse_setup
       - name: Validate venture registry
         run: python elevated-associates/ops/ea_status.py --check
       - name: Bridge compiles
