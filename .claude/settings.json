@@ -19,7 +19,35 @@
       "Bash(python3 -m unittest test_paperbot test_alpaca_paper)",
       "Bash(python3 -m unittest discover -p \"test_*.py\")",
       "Bash(python3 -m py_compile start.py app.py login_bridge.py)",
-      "Bash(python3 paperbot.py --synthetic *)"
+      "Bash(python3 paperbot.py --synthetic *)",
+      "Read",
+      "Edit",
+      "Bash(git *)",
+      "Bash(pnpm *)",
+      "Bash(npm *)",
+      "Bash(uv *)",
+      "Bash(pip *)",
+      "Bash(ruff *)",
+      "Bash(pytest *)",
+      "Bash(make *)",
+      "Bash(ls *)",
+      "Bash(cat *)",
+      "Bash(grep *)",
+      "Bash(sed *)",
+      "Bash(diff *)",
+      "Bash(jq *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(chmod *)"
+    ],
+    "deny": [
+      "Bash(rm -rf /*)",
+      "Bash(rm -rf ~*)",
+      "Bash(git push --force *)",
+      "Bash(git push -f *)",
+      "Bash(git reset --hard origin/*)",
+      "Bash(git clean -fdx*)"
     ]
   }
 }
