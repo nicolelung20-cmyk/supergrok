@@ -8,7 +8,7 @@ A second-by-second **paper** trading bot for Elevated Associates LLC. It polls f
 
 ```bash
 cd elevated-associates/trading
-python3 -m unittest test_paperbot test_alpaca_paper             # 23 tests, no network needed
+python3 -m unittest test_paperbot test_alpaca_paper             # 26 tests, no network needed
 python3 paperbot.py --live --products BTC-USD,ETH-USD,SOL-USD   # Coinbase prices, simulated fills
 python3 paperbot.py --synthetic --ticks 20000                   # offline sanity check
 python3 alpaca_paper.py --check                                 # verify Alpaca paper keys
@@ -37,6 +37,7 @@ It needs only Python 3.9+ and no packages. Each run writes `paper_runs/<time>/le
 |---|---|
 | `ema_cross` | Trend following: buy when the 30-tick EMA crosses above the 120-tick EMA, sell on the cross back |
 | `zscore_reversion` | Mean reversion: buy when price is 2.5σ below its 5-minute mean, exit when it reverts |
+| `trend_breakout` | Long-timeframe, fee-aware: buy a bar close above the prior 20-bar high when above the 50-bar EMA and the channel range is at least 3x round-trip cost; exit below the prior 10-bar low. Bars are 3600 ticks (about 1 hour at 1 tick/s). One strategy at a time, no parallel runs |
 
 Run **one strategy at a time** on Alpaca (ELE-39); `alpaca_paper.py` defaults to `ema_cross`.
 
