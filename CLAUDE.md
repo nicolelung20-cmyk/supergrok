@@ -14,6 +14,15 @@ Two things live in this repo:
 | `run-detectors` | Static checks after editing the bridge code |
 | `add-bridge-provider` | Adding a new chat target to the bridge |
 
+## Project subagents (`.claude/agents/`)
+
+| Agent | Use for |
+|---|---|
+| `attorney` | Contract, policy and filing drafts for an attorney to review (never advice) |
+| `quant` | Paper-only strategy research, backtests and the live paper bot |
+| `robin-research` | Lawful public-source research, due diligence and defensive OSINT |
+| `income-v7` | Shortest legal path to revenue; builds everything and hands Nicole one step |
+
 ## Checks CI runs (`.github/workflows/ci.yml`)
 
 ```bash
