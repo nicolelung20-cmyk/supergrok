@@ -14,7 +14,7 @@ _Generated 2026-10-01 from `registry.json` by `ops/ea_status.py`. Edit the regis
 | [Algorithmic / "quantum" trading research](trading/README.md) | paper-only | unproven | Second-by-second paper engine (elevated-associates/trading/paperbot.py): Coinbase public feed, EMA-cross + z-score strategies, real 0.6% fees, daily kill-switch. Runs on an always-on machine; the cloud blocks exchange APIs | — |
 | [Web3 tooling & content](streams/trading-and-web3.md) | exploring | unproven | None yet | coinbase-business-setup |
 | [Kraken funding-capture bot](streams/trading-and-web3.md) | retired | n/a | None — retired 2026-09-09 at owner's request; do not resume | — |
-| [Agent Robin — dark web OSINT agent](streams/agent-robin.md) | exploring | unknown | Agent definition merged in robin#5; no scheduled runs | — |
+| [Agent Robin — dark web OSINT agent](streams/agent-robin.md) | exploring | none (internal) | Agent definition merged in robin#5; no scheduled runs | — |
 
 ## Agents & automations
 

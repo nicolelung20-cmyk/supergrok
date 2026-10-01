@@ -101,9 +101,9 @@
     {
       "id": "agent-robin",
       "name": "Agent Robin — dark web OSINT agent",
-      "model": "Internal research agent over the Robin MCP server (nicolelung20-cmyk/robin). Revenue model not yet defined",
+      "model": "Internal research tool only: dark web OSINT agent over the Robin MCP server (nicolelung20-cmyk/robin). Not sold; no paid service",
       "status": "exploring",
-      "revenue_potential": "unknown",
+      "revenue_potential": "none (internal)",
       "automation": "Agent definition merged in robin#5; no scheduled runs",
       "blocked_on": [],
       "doc": "streams/agent-robin.md"
