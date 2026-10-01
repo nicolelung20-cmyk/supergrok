@@ -2,7 +2,7 @@ import inspect
 import unittest
 
 import paperbot
-from paperbot import Config, EmaCross, PaperBroker, Tick, ZScoreReversion, run, synthetic_feed
+from paperbot import Config, EmaCross, PaperBroker, Tick, TrendBreakout, ZScoreReversion, run, synthetic_feed
 
 
 def tick(price, ts=0.0, product="BTC-USD", spread=0.0):
@@ -98,6 +98,23 @@ class StrategyTest(unittest.TestCase):
         for i in range(49):
             s.signal(tick(100 + (i % 2) * 0.1))
         self.assertEqual(s.signal(tick(95)), "buy")
+
+    def _bars(self, s, closes):
+        return [s.signal(tick(c)) for c in closes]
+
+    def test_trend_breakout_buys_breakout_then_sells_breakdown(self):
+        s = TrendBreakout(bar_ticks=1, channel=5, exit_channel=3, trend=3, edge_multiple=0.0)
+        flat = [100 + (i % 2) for i in range(8)]
+        sigs = self._bars(s, flat + [110, 112, 111, 90])
+        self.assertEqual([x for x in sigs if x], ["buy", "sell"])
+
+    def test_trend_breakout_ignores_breakout_that_cannot_clear_fees(self):
+        s = TrendBreakout(bar_ticks=1, channel=5, exit_channel=3, trend=3, edge_multiple=3.0)
+        self.assertNotIn("buy", self._bars(s, [100.0] * 8 + [100.2]))
+
+    def test_trend_breakout_does_not_buy_in_downtrend(self):
+        s = TrendBreakout(bar_ticks=1, channel=5, exit_channel=3, trend=3, edge_multiple=0.0)
+        self.assertNotIn("buy", self._bars(s, [200 - i for i in range(30)]))
 
 
 class SafetyTest(unittest.TestCase):

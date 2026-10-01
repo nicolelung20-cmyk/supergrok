@@ -146,7 +146,54 @@ class ZScoreReversion(Strategy):
         return None
 
 
-STRATEGIES = {cls.name: cls for cls in (EmaCross, ZScoreReversion)}
+class TrendBreakout(Strategy):
+    """Fee-aware trend breakout on bars built from ticks (one strategy, long timeframe).
+
+    Enter long when a bar closes above the highest high of the prior `channel` bars while the
+    close is above the slow EMA (trend regime) and the channel's average range is wide enough to
+    clear `edge_multiple` round-trip costs. Exit when a bar closes below the lowest low of the
+    prior `exit_channel` bars. Fewer, larger-conviction trades, so fees do not eat the edge.
+    """
+    name = "trend_breakout"
+
+    def __init__(self, bar_ticks=3600, channel=20, exit_channel=10, trend=50,
+                 edge_multiple=3.0, round_trip_cost=0.0125):
+        super().__init__()
+        self.bar_ticks, self.channel, self.exit_channel = bar_ticks, channel, exit_channel
+        self.trend_a = 2 / (trend + 1)
+        self.edge_multiple, self.round_trip_cost = edge_multiple, round_trip_cost
+        self.state = {}
+
+    def signal(self, tick):
+        st = self.state.setdefault(tick.product, {
+            "n": 0, "hi": tick.mid, "lo": tick.mid, "ema": None,
+            "bars": deque(maxlen=max(self.channel, self.exit_channel)), "long": False})
+        st["n"] += 1
+        st["hi"], st["lo"] = max(st["hi"], tick.mid), min(st["lo"], tick.mid)
+        if st["n"] < self.bar_ticks:
+            return None
+        close, hi, lo = tick.mid, st["hi"], st["lo"]
+        st["n"], st["hi"], st["lo"] = 0, close, close
+        st["ema"] = close if st["ema"] is None else st["ema"] + self.trend_a * (close - st["ema"])
+        bars = list(st["bars"])
+        st["bars"].append((hi, lo))
+        if len(bars) < self.channel:
+            return None
+        window = bars[-self.channel:]
+        high_n = max(b[0] for b in window)
+        avg_range = sum(b[0] - b[1] for b in window) / len(window) / close
+        if st["long"]:
+            if close < min(b[1] for b in bars[-self.exit_channel:]):
+                st["long"] = False
+                return "sell"
+            return None
+        if close > high_n and close > st["ema"] and avg_range * self.channel ** 0.5 >= self.edge_multiple * self.round_trip_cost:
+            st["long"] = True
+            return "buy"
+        return None
+
+
+STRATEGIES = {cls.name: cls for cls in (EmaCross, ZScoreReversion, TrendBreakout)}
 
 
 # ---------------------------------------------------------------- broker
