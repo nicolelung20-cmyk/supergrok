@@ -35,3 +35,5 @@ session.log
 # Packaged delivery zips
 *.zip
 paper_runs/
+.env.local
+.env.*.local
