@@ -78,6 +78,15 @@ PROVIDERS: dict[str, dict[str, Any]] = {
         "successUrl": "https://chat.deepseek.com/",
         "size": (480, 720),
     },
+    # Hermes WebUI is self-hosted. Loopback needs no login; the optional password page is /login.
+    "hermes": {
+        "label": "Hermes",
+        "homeUrl": "http://127.0.0.1:8787/",
+        "loginUrl": "http://127.0.0.1:8787/login",
+        "authHosts": ("/login",),
+        "successUrl": "http://127.0.0.1:8787/",
+        "size": (480, 720),
+    },
 }
 
 

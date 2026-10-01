@@ -121,6 +121,7 @@ GROK_TARGET_ALIASES = {"grok", "supergrok", "xai"}
 GEMINI_TARGET_ALIASES = {"gemini", "gem", "gem-bridge", "gembridge", "google", "googleai", "bard"}
 CLAUDE_TARGET_ALIASES = {"claude", "anthropic", "claudeai", "claude-bridge", "claudebridge", "cl"}
 DEEPSEEK_TARGET_ALIASES = {"deepseek", "deep-seek", "deepseek-bridge", "deepseekbridge", "dsk"}
+HERMES_TARGET_ALIASES = {"hermes", "hermes-agent", "hermes-webui", "hermes-bridge", "hermesbridge"}
 
 
 def normalizeChatTarget(value: object = "") -> str:
@@ -135,6 +136,8 @@ def normalizeChatTarget(value: object = "") -> str:
         return "claude"
     if target in DEEPSEEK_TARGET_ALIASES:
         return "deepseek"
+    if target in HERMES_TARGET_ALIASES:
+        return "hermes"
     return target or "grok"
 
 
@@ -148,6 +151,8 @@ def chatTargetFromUrl(url: object = "") -> str:
         return "claude"
     if "deepseek.com" in text:
         return "deepseek"
+    if "hermes" in text or ":8787" in text:
+        return "hermes"
     return "grok"
 
 
@@ -161,6 +166,8 @@ def chatProviderLabel(target: object = "") -> str:
         return "Claude"
     if t == "deepseek":
         return "DeepSeek"
+    if t == "hermes":
+        return "Hermes"
     return "Grok"
 
 
@@ -174,6 +181,8 @@ def chatProviderHomeUrl(target: object = "") -> str:
         return "https://claude.ai/new"
     if t == "deepseek":
         return "https://chat.deepseek.com/"
+    if t == "hermes":
+        return "http://127.0.0.1:8787/"
     return "https://grok.com/"
 
 
@@ -2898,6 +2907,13 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
       'textarea[placeholder*="DeepSeek" i]',
       'textarea[placeholder*="Message" i]'
     ];
+    /* Hermes WebUI (self-hosted, default http://127.0.0.1:8787/). Selectors taken from the
+       project's own static/index.html: composer is textarea#msg, placeholder "Message Hermes…".
+       Not yet round-tripped against a live instance. */
+    const hermesSelectors = [
+      'textarea#msg',
+      'textarea[placeholder*="Message Hermes" i]'
+    ];
     const generic = [
       '[data-testid="composer"] [contenteditable="true"]',
       'form [contenteditable="true"]',
@@ -2912,6 +2928,7 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
     else if (__target === 'chatgpt') selectors = chatgptSelectors.concat(generic);
     else if (__target === 'claude') selectors = claudeSelectors.concat(generic);
     else if (__target === 'deepseek') selectors = deepseekSelectors.concat(generic);
+    else if (__target === 'hermes') selectors = hermesSelectors.concat(generic);
     else selectors = chatgptSelectors.concat(generic);
     const rows = __queryAll(selectors, document);
     return rows.length ? rows[0] : null;
@@ -3070,6 +3087,7 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
 
   function __findSendButton(editor) {{
     const selectors = [
+      'button#btnSend',
       'button[data-testid="send-button"]',
       'button[data-testid="composer-submit-button"]',
       'button#composer-submit-button',
@@ -3281,6 +3299,16 @@ def buildGrokDomSendScript(message: str, sendId: str, *, maxTicks: int = 300, st
         '[data-test-render-count] .font-claude-message',
         'div.font-claude-message .grid-cols-1',
         '[data-is-streaming]'
+      ]);
+      return out;
+    }}
+    if (__target === 'hermes') {{
+      /* Hermes WebUI renders each turn as .msg-row[data-role="assistant"] with the text in .msg-body
+         (from the project's static/ui.js). Not yet round-tripped against a live instance. */
+      collect([
+        '#msgInner .msg-row[data-role="assistant"] .msg-body',
+        '.msg-row[data-role="assistant"] .msg-body',
+        '.msg-row[data-role="assistant"]'
       ]);
       return out;
     }}
@@ -3937,8 +3965,8 @@ class BridgeCommandServer(QObject):
             return
         if action == "chat":
             target = normalizeChatTarget(request.get("target") or getattr(getattr(self.window, "config", None), "target", "grok"))
-            if target not in {"grok", "chatgpt", "gemini", "claude", "deepseek"}:
-                self.respond(socket, {"ok": False, "error": f"unsupported target {target!r}; expected grok, chatgpt, gemini, claude, or deepseek"})
+            if target not in {"grok", "chatgpt", "gemini", "claude", "deepseek", "hermes"}:
+                self.respond(socket, {"ok": False, "error": f"unsupported target {target!r}; expected grok, chatgpt, gemini, claude, deepseek, or hermes"})
                 return
             message = str(request.get("message") or "")
             attachments = request.get("attachments") if isinstance(request.get("attachments"), list) else []
