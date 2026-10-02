@@ -111,6 +111,19 @@ class SafetyTest(unittest.TestCase):
         for banned in ("/exchange", "private_key", "secret", "api_key", "eth_account", "sign_l1", "signature"):
             self.assertNotIn(banned, src)
 
+    def test_retries_rate_limit_with_backoff(self):
+        import urllib.error
+        waits, replies = [], [urllib.error.HTTPError("u", 429, "x", {}, None), {"BTC": "1"}]
+
+        def post(url, body):
+            r = replies.pop(0)
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+        self.assertEqual(hl_copy.info({"type": "allMids"}, post, sleep=waits.append), {"BTC": "1"})
+        self.assertEqual(waits, [15.0])
+
     def test_default_traders_are_addresses(self):
         for t in hl_copy.TOP_TRADERS:
             self.assertRegex(t, r"^0x[0-9a-f]{40}$")

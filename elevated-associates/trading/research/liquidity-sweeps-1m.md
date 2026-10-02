@@ -132,13 +132,13 @@ The single-strategy runs above test one idea at a time. `tournament.py` now repl
 
 `hl_copy.py` tests a different source of edge: real Hyperliquid traders with three straight profitable months. The replay copies only their fresh longs, one candle late, unleveraged at 5% per position. So it measures what a follower actually gets, not what the traders made.
 
-Results go in the tables below once the workflow runs finish.
+Results (run 36962586763) are below. **Verdict so far: none of the 44 rule-based candidates has an edge on Coinbase, at either fee level or timeframe.** The only consistent signal is that 1-minute z-score reversion is slightly positive before fees, and only a venue far cheaper than 0.1% per side could turn that into profit.
 
 | Run | Robust candidates | Best robust (test return) | Notes |
 |---|---|---|---|
-| Coinbase 1m, 30 d, fee 0.6% | | | |
-| Coinbase 1m, 30 d, fee 0.1% | | | |
-| Coinbase 1h, 365 d, fee 0.6% | | | |
+| Coinbase 1m, 30 d, fee 0.6% (BTC/ETH/SOL, Sep 2 – Oct 2) | 0 of 44 | none | Every candidate lost on train. Best train: momentum lb240 th0.02 (−0.59%), then −1.05% on test |
+| Coinbase 1m, 30 d, fee 0.1% | 0 of 44 | none | Top of train (trend_breakout c20, +1.57%) lost on test (−0.80%). The z-score family earned $1–3 before fees on test, but fees took it all |
+| Coinbase 1h, 365 d, fee 0.6% (Oct 2025 – Oct 2026) | 0 of 44 | none | No candidate made money in the 8-month train part. Several made money on the 4-month test (ema_cross f60 s240 +0.56%, z-score w300 +0.55%), but that is the luck the split exists to catch |
 | Solana DEX 1m, 30 d, fee 0.3% | | | |
 
 | Copy replay | Return | Trades | Win | Max DD |

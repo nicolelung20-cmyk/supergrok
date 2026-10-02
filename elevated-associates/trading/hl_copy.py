@@ -54,25 +54,39 @@ TOP_TRADERS = [
 ]
 
 
-def info(body, post=None):
-    """One read-only call to Hyperliquid's info API."""
-    if body.get("type") not in READ_TYPES:
-        raise ValueError(f"{body.get('type')} is not a read request this follower may make")
-    if post is not None:
-        return post(INFO_URL, body)
+def _post_json(url, body):
     import urllib.request
-    req = urllib.request.Request(INFO_URL, data=json.dumps(body).encode(),
+    req = urllib.request.Request(url, data=json.dumps(body).encode(),
                                  headers={"Content-Type": "application/json", "User-Agent": "ea-hl-copy/1.0"})
     with urllib.request.urlopen(req, timeout=30) as r:
         return json.load(r)
 
 
-def fetch_fills(user, start_ms, end_ms, post=None, pause=0.5, sleep=time.sleep):
+def info(body, post=None, retries=5, base_wait=15.0, sleep=time.sleep):
+    """One read-only call to Hyperliquid's info API. On 429 (the free API allows about 1,200
+    weight a minute per IP), waits base_wait, 2x, 4x... seconds and tries again."""
+    import urllib.error
+    if body.get("type") not in READ_TYPES:
+        raise ValueError(f"{body.get('type')} is not a read request this follower may make")
+    for attempt in range(retries + 1):
+        try:
+            return (post or _post_json)(INFO_URL, body)
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or attempt == retries:
+                raise
+            wait = base_wait * 2 ** attempt
+            print(f"hyperliquid rate limit, waiting {wait:.0f}s", file=sys.stderr)
+            sleep(wait)
+
+
+def fetch_fills(user, start_ms, end_ms, post=None, pause=6.0, sleep=time.sleep):
     """All of `user`'s fills in [start_ms, end_ms], oldest first. Hyperliquid only keeps the
-    most recent 10,000 fills per wallet here, so very active wallets cover a shorter span."""
+    most recent 10,000 fills per wallet here, so very active wallets cover a shorter span.
+    A full page weighs about 120 of the 1,200-a-minute budget, hence `pause`."""
     out, t = [], start_ms
     while t <= end_ms:
-        batch = info({"type": "userFillsByTime", "user": user, "startTime": t, "endTime": end_ms}, post) or []
+        batch = info({"type": "userFillsByTime", "user": user, "startTime": t, "endTime": end_ms}, post,
+                     sleep=sleep) or []
         out += batch
         if len(batch) < FILLS_PAGE:
             break
@@ -106,14 +120,15 @@ def signals(user, fills):
     return out
 
 
-def candles(coin, start_ms, end_ms, interval="5m", post=None, pause=0.5, sleep=time.sleep):
+def candles(coin, start_ms, end_ms, interval="5m", post=None, pause=5.0, sleep=time.sleep):
     """Candles for one perp as Ticks stamped at each candle's close (bid = ask = close)."""
     step = INTERVAL_MS[interval]
     ticks, t = [], start_ms
     while t < end_ms:
         hi = min(end_ms, t + step * CANDLES_PAGE)
         rows = info({"type": "candleSnapshot",
-                     "req": {"coin": coin, "interval": interval, "startTime": t, "endTime": hi}}, post) or []
+                     "req": {"coin": coin, "interval": interval, "startTime": t, "endTime": hi}}, post,
+                    sleep=sleep) or []
         for c in rows:
             close = float(c["c"])
             ticks.append(Tick(int(c["T"]) / 1000, f"HL:{coin}", close, close, float(c["h"]), float(c["l"])))
