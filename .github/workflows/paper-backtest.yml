@@ -73,7 +73,7 @@ jobs:
       matrix:
         days: ["30", "90"]
         fee: ["0.006", "0.001"]
-        variant: [baseline, buffer, big-pools, follow]
+        variant: [baseline, buffer, big-pools, follow, magnet, magnet-follow]
         include:
           # baseline: stop at the wick, 30-minute pools, exit at the first target
           - variant: baseline
@@ -87,6 +87,12 @@ jobs:
           # follow: big pools, then trail under the last 15 bars' lows after the target
           - variant: follow
             flags: "--sweep-lookback 240 --sweep-max-hold 240 --sweep-stop-buffer 0.5 --sweep-trail 15"
+          # magnet: ride momentum toward untouched equal highs (4-hour window), exit at the magnet
+          - variant: magnet
+            flags: "--strategies liquidity_magnet --sweep-stop-buffer 0.5"
+          # magnet-follow: as magnet, then trail under the last 15 bars' lows past the magnet
+          - variant: magnet-follow
+            flags: "--strategies liquidity_magnet --sweep-stop-buffer 0.5 --sweep-trail 15"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -94,7 +100,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.11"
-      - name: Replay one-minute candles through liquidity_sweep
+      - name: Replay one-minute candles through liquidity_sweep / liquidity_magnet
         working-directory: elevated-associates/trading
         env:
           DAYS: ${{ matrix.days }}
@@ -110,7 +116,7 @@ jobs:
           import json, os
           s = json.load(open("paper_runs/ci/summary.json"))
           g = s["gate"]["checks"]
-          print(f"### liquidity_sweep {os.environ['VARIANT']} · 1m · {os.environ['DAYS']} days · fee {os.environ['FEE']} · {os.environ['PRODUCTS']}")
+          print(f"### liquidity {os.environ['VARIANT']} · 1m · {os.environ['DAYS']} days · fee {os.environ['FEE']} · {os.environ['PRODUCTS']}")
           print(f"trades {s['closed_trades']} · win {s['win_rate_pct']}% · expectancy {s['expectancy']} · "
                 f"max DD {s['max_drawdown_pct']}% · return {s['return_pct']}% · fees {s['fees_paid']}")
           print(f"gate: {'PASS' if all(g.values()) else 'not passed'} {g}")

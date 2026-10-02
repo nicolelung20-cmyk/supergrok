@@ -116,3 +116,57 @@ class CandleTickTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class LiquidityMagnetTest(unittest.TestCase):
+    def strat(self, **kw):
+        kw.setdefault("lookback", 12)
+        kw.setdefault("round_trip_cost", 0.001)
+        kw.setdefault("trend", 3)
+        kw.setdefault("min_rr", 1.0)
+        return paperbot.LiquidityMagnet(**kw)
+
+    def history(self):
+        # three equal highs at 102.0 (buy stops rest above them), then a pullback to ~100
+        bars = [candle(101.5, 102.0, 101.0, ts=i) for i in range(3)]
+        bars += [candle(100.0 + 0.1 * i, 100.3 + 0.1 * i, 99.8 + 0.1 * i, ts=3 + i) for i in range(9)]
+        return bars
+
+    def test_finds_untouched_equal_highs(self):
+        s = self.strat()
+        bars = [(102.0, 101.0)] * 3 + [(100.5, 99.8)] * 5
+        self.assertEqual(s.magnet(bars, 100.4), 100.5)  # the range just above price is a pool too
+        self.assertEqual(s.magnet(bars, 100.4, floor=101.0), 102.0)
+
+    def test_ignores_highs_already_run_through(self):
+        s = self.strat()
+        bars = [(102.0, 101.0)] * 3 + [(103.0, 101.5)] + [(100.5, 99.8)] * 5
+        self.assertIsNone(s.magnet(bars, 100.4, floor=101.0))
+
+    def test_needs_enough_touches(self):
+        s = self.strat(touches=3)
+        bars = [(102.0, 101.0)] * 2 + [(100.5, 99.8)] * 5
+        self.assertIsNone(s.magnet(bars, 100.4, floor=101.0))
+
+    def test_buys_momentum_toward_magnet_and_sells_at_it(self):
+        s = self.strat(stop_bars=2)  # stop 100.5: risk 0.69% vs 0.79% to the magnet
+        push = candle(101.2, 101.3, 100.8, ts=20)       # closes above the prior bar's high (101.1)
+        arrive = candle(102.0, 102.1, 101.3, ts=21)     # reaches the magnet at 102.0
+        sig = [s.signal(t) for t in self.history() + [push, arrive]]
+        self.assertEqual(sig[-2:], ["buy", "sell"])
+
+    def test_no_buy_without_momentum(self):
+        s = self.strat(stop_bars=2)
+        stall = candle(100.9, 101.0, 100.7, ts=20)      # does not close above the prior bar's high
+        sig = [s.signal(t) for t in self.history() + [stall]]
+        self.assertNotIn("buy", sig)
+
+    def test_registered_and_cli_defaults_apply(self):
+        self.assertIs(STRATEGIES["liquidity_magnet"], paperbot.LiquidityMagnet)
+        m = paperbot.LiquidityMagnet()
+        self.assertEqual((m.lookback, m.max_hold), (240, 120))
+
+    def test_skips_magnet_when_risk_is_larger_than_reward(self):
+        s = self.strat(stop_bars=5)  # stop 100.2: risk 0.99% vs 0.79% to the magnet
+        sig = [s.signal(t) for t in self.history() + [candle(101.2, 101.3, 100.8, ts=20)]]
+        self.assertNotIn("buy", sig)

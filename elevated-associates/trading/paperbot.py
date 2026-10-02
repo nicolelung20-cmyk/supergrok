@@ -284,7 +284,94 @@ class LiquiditySweep(Strategy):
         return "buy"
 
 
-STRATEGIES = {cls.name: cls for cls in (EmaCross, ZScoreReversion, TrendBreakout, LiquiditySweep)}
+class LiquidityMagnet(LiquiditySweep):
+    """Ride price toward the nearest untouched pool of buy-side liquidity (long only, spot).
+
+    A magnet is a level above price where at least `touches` bar highs in the last `lookback`
+    bars line up within `tolerance` (equal highs, where buy stops rest) and no bar has traded
+    through it since. Enter when a bar closes above the previous bar's high (momentum toward
+    the magnet) while above the `trend`-bar EMA. Stop under the lowest low of the last
+    `stop_bars` bars (minus `stop_buffer` average ranges). Exit at the magnet, or with `trail`,
+    keep holding past it and trail the stop as in LiquiditySweep. Same cost and reward/risk
+    filters as LiquiditySweep.
+    """
+    name = "liquidity_magnet"
+
+    def __init__(self, touches=3, tolerance=0.001, stop_bars=5, trend=60, **kw):
+        kw.setdefault("lookback", 240)
+        kw.setdefault("max_hold", 120)
+        super().__init__(**kw)
+        self.touches, self.tolerance, self.stop_bars = touches, tolerance, stop_bars
+        self.trend_a = 2 / (trend + 1)
+
+    def magnet(self, bars, close, floor=None):
+        """Nearest untouched equal-highs level above `floor` (default `close`), or None.
+
+        Highs above the floor are scanned in ascending order; a cluster is `touches` or more highs
+        within `tolerance` of the lowest one. It is untouched if no later bar traded above it.
+        """
+        floor = close if floor is None else floor
+        above = sorted((b[0], i) for i, b in enumerate(bars) if b[0] > floor)
+        if len(above) < self.touches:
+            return None
+        suffix_max = [0.0] * (len(bars) + 1)
+        for i in range(len(bars) - 1, -1, -1):
+            suffix_max[i] = max(bars[i][0], suffix_max[i + 1])
+        end = 0
+        for start in range(len(above)):
+            band = above[start][0] * self.tolerance
+            end = max(end, start)
+            while end + 1 < len(above) and above[end + 1][0] - above[start][0] <= band:
+                end += 1
+            if end - start + 1 < self.touches:
+                continue
+            level = above[end][0]
+            first = min(i for _, i in above[start:end + 1])
+            if suffix_max[first] <= level + band:
+                return level
+        return None
+
+    def signal(self, tick):
+        st = self.state.setdefault(tick.product, {
+            "n": 0, "hi": None, "lo": None, "bars": deque(maxlen=self.lookback), "trade": None, "ema": None})
+        bar = self._bar(st, tick)
+        if bar is None:
+            return None
+        high, low, close = bar
+        bars = list(st["bars"])
+        st["bars"].append((high, low))
+        st["ema"] = close if st["ema"] is None else st["ema"] + self.trend_a * (close - st["ema"])
+        trade = st["trade"]
+        if trade is not None:
+            trade["held"] += 1
+            if low <= trade["stop"] or trade["held"] >= self.max_hold:
+                st["trade"] = None
+                return "sell"
+            if self.trail and len(bars) >= self.trail:
+                if high >= trade["target"] and not trade["trailing"]:
+                    trade["trailing"], trade["held"] = True, 0
+                if trade["trailing"]:
+                    trade["stop"] = max(trade["stop"], min(b[1] for b in list(st["bars"])[-self.trail:]))
+                return None
+            if high >= trade["target"]:
+                st["trade"] = None
+                return "sell"
+            return None
+        if len(bars) < self.lookback or close <= bars[-1][0] or close <= st["ema"]:
+            return None
+        target = self.magnet(bars, close, floor=close * (1 + self.edge_multiple * self.round_trip_cost))
+        if target is None:
+            return None
+        avg_range = sum(b[0] - b[1] for b in bars) / len(bars)
+        stop = min(b[1] for b in bars[-self.stop_bars:] + [(high, low)]) - self.stop_buffer * avg_range
+        reward, risk = (target - close) / close, (close - stop) / close
+        if reward < self.edge_multiple * self.round_trip_cost or risk <= 0 or reward < self.min_rr * risk:
+            return None
+        st["trade"] = {"stop": stop, "target": target, "held": 0, "trailing": False}
+        return "buy"
+
+
+STRATEGIES = {cls.name: cls for cls in (EmaCross, ZScoreReversion, TrendBreakout, LiquiditySweep, LiquidityMagnet)}
 
 
 # ---------------------------------------------------------------- broker
@@ -539,12 +626,14 @@ def main():
     ap.add_argument("--gate-min-days", type=float, default=Config.gate_min_days,
                     help="days of paper data the gate requires (measured from tick timestamps)")
     ap.add_argument("--products", default="BTC-USD,ETH-USD,SOL-USD")
-    ap.add_argument("--sweep-lookback", type=int, default=30, help="liquidity_sweep: bars in the liquidity pool")
-    ap.add_argument("--sweep-max-hold", type=int, default=30, help="liquidity_sweep: bars before a time exit")
-    ap.add_argument("--sweep-stop-buffer", type=float, default=0.0,
-                    help="liquidity_sweep: stop this many average bar ranges below the wick")
-    ap.add_argument("--sweep-trail", type=int, default=0,
-                    help="liquidity_sweep: after the target, trail the stop under the last N bars' lows (0 = off)")
+    ap.add_argument("--sweep-lookback", type=int, default=None,
+                    help="liquidity_sweep/magnet: bars in the liquidity pool (default 30 sweep, 240 magnet)")
+    ap.add_argument("--sweep-max-hold", type=int, default=None,
+                    help="liquidity_sweep/magnet: bars before a time exit (default 30 sweep, 120 magnet)")
+    ap.add_argument("--sweep-stop-buffer", type=float, default=None,
+                    help="liquidity_sweep/magnet: stop this many average bar ranges below the stop level")
+    ap.add_argument("--sweep-trail", type=int, default=None,
+                    help="liquidity_sweep/magnet: after the target, trail the stop under the last N bars' lows")
     ap.add_argument("--strategies", default=",".join(STRATEGIES))
     ap.add_argument("--interval", type=float, default=None,
                     help="seconds between live polls (default 1; 5 for --jupiter to stay under its free rate limit)")
@@ -571,10 +660,11 @@ def main():
     for s in (s.strip() for s in args.strategies.split(",")):
         if s == "trend_breakout":
             strategies.append(STRATEGIES[s](bar_ticks=bar_ticks))
-        elif s == "liquidity_sweep":
-            strategies.append(STRATEGIES[s](
-                bar_ticks=minute_ticks, round_trip_cost=round_trip, lookback=args.sweep_lookback,
-                max_hold=args.sweep_max_hold, stop_buffer=args.sweep_stop_buffer, trail=args.sweep_trail))
+        elif s in ("liquidity_sweep", "liquidity_magnet"):
+            opts = {"lookback": args.sweep_lookback, "max_hold": args.sweep_max_hold,
+                    "stop_buffer": args.sweep_stop_buffer, "trail": args.sweep_trail}
+            strategies.append(STRATEGIES[s](bar_ticks=minute_ticks, round_trip_cost=round_trip,
+                                            **{k: v for k, v in opts.items() if v is not None}))
         else:
             strategies.append(STRATEGIES[s]())
 

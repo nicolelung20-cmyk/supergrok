@@ -1,4 +1,4 @@
-# Liquidity sweeps on one-minute charts
+# Liquidity sweeps and magnets on one-minute charts
 
 Paper research for Elevated Associates LLC. Nothing here places real orders; results come from the paper broker in `paperbot.py`.
 
@@ -84,6 +84,21 @@ Four variants on seven liquid coins (BTC, ETH, SOL, XRP, DOGE, AVAX, LINK), 30 a
 | follow | big pools, then trail the stop under the last 15 bars' lows after the target | let winners run to the next pool |
 
 More coins means more setups ("more trades"); the pool size and trailing aim at larger gains per trade. The broker's 4% take-profit and 2% stop (ELE-39) still cap every trade; changing those is Nicole's call.
+
+### Liquidity magnet (`liquidity_magnet`)
+
+The sweep trades the *reversal* after liquidity is taken. The magnet trades the *pull* toward liquidity that has not been taken yet:
+
+| Step | Rule (defaults) |
+|---|---|
+| Magnet | Nearest level above price where at least 3 one-minute highs in the last 240 bars line up within 0.1% (equal highs, where buy stops rest) and no bar has traded through it since |
+| Minimum distance | Only magnets at least 2 × round-trip cost above price count (closer equal highs can't pay for the trade) |
+| Entry | A bar closes above the previous bar's high (momentum toward the magnet) and above the 60-bar EMA |
+| Stop | Lowest low of the last 5 bars, minus the stop buffer |
+| Exit | At the magnet, or with `--sweep-trail`, keep holding past it and trail under recent lows |
+| Filters | Same as the sweep: reward ≥ 2 × round-trip cost and ≥ 1.5 × risk |
+
+Two magnet variants (`magnet`, `magnet-follow`) run in the same round-2 replay as the sweep variants.
 
 ## Next ideas (one at a time, after round 2)
 
