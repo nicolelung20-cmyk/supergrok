@@ -27,6 +27,9 @@ on:
       hl_traders:
         description: Hyperliquid addresses for hl_copy (comma-separated); empty uses the chosen top traders
         default: ""
+      dex_days:
+        description: dex_1m windows to run (e.g. 90); empty runs 30 and 90
+        default: ""
       dex_products:
         description: Solana DEX tokens for the one-minute DEX replay (JUP:<symbol> or JUP:<mint>@<decimals>)
         default: JUP:SOL,JUP:JUP,JUP:BONK,JUP:WIF
@@ -153,7 +156,8 @@ jobs:
     # Decentralized: one-minute candles from Solana DEX pools (GeckoTerminal, built from on-chain swaps).
     # --dex-fee 0.003 charges each swap a 0.25% pool fee plus network fee and margin.
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    # 90 days is ~520 candle pages; with rate-limit waits a job can take over an hour
+    timeout-minutes: 180
     strategy:
       fail-fast: false
       max-parallel: 2  # GeckoTerminal's free API is rate-limited; more parallel jobs get HTTP 429
@@ -177,7 +181,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Replay one-minute Solana DEX candles
-        if: ${{ !inputs.variants || contains(format(',{0},', inputs.variants), format(',{0},', matrix.variant)) }}
+        if: ${{ (!inputs.variants || contains(format(',{0},', inputs.variants), format(',{0},', matrix.variant))) && (!inputs.dex_days || contains(format(',{0},', inputs.dex_days), format(',{0},', matrix.days))) }}
         working-directory: elevated-associates/trading
         env:
           DAYS: ${{ matrix.days }}
@@ -198,7 +202,7 @@ jobs:
           print(f"gate: {'PASS' if all(g.values()) else 'not passed'} {g}")
           PY
       - uses: actions/upload-artifact@v4
-        if: ${{ !inputs.variants || contains(format(',{0},', inputs.variants), format(',{0},', matrix.variant)) }}
+        if: ${{ (!inputs.variants || contains(format(',{0},', inputs.variants), format(',{0},', matrix.variant))) && (!inputs.dex_days || contains(format(',{0},', inputs.dex_days), format(',{0},', matrix.days))) }}
         with:
           name: paper-backtest-dex-1m-${{ matrix.variant }}-${{ matrix.days }}d
           path: elevated-associates/trading/paper_runs/ci
@@ -208,7 +212,7 @@ jobs:
     # Strategy tournament: 44 candidates across all 7 strategy families, run in parallel on one
     # download. First 2/3 of the history picks settings; the last 1/3 is the out-of-sample test.
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 120
     strategy:
       fail-fast: false
       max-parallel: 2  # keeps the free candle APIs under their rate limits
