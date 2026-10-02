@@ -62,13 +62,14 @@ Cloud sessions can't reach Coinbase or Jupiter; run these on a Mac or let the wo
 |---|---|---|---|---|---|---|---|
 | 30 days | 0.6% | 9 | 11.1% | −0.60% | $5.37 | 0.61% | not passed |
 | 30 days | 0.1% | 1,277 | 13.1% | −14.00% | $118.66 | 14.01% | not passed |
-| 90 days | 0.6% | pending | | | | | |
-| 90 days | 0.1% | pending | | | | | |
+| 90 days | 0.6% | 15 | 26.7% | −0.55% | $8.98 | 0.67% | not passed (15 trades, net negative) |
+| 90 days | 0.1% | 3,139 | 13.5% | −30.80% | $262.29 | 30.80% | not passed |
 
 What it says:
 
 - **At Coinbase's fee the cost filter does its job.** Only 9 setups qualified in 30 days, so losses stayed small, but there were too few trades to judge.
-- **At the low fee it trades constantly and loses.** Before fees the 1,277 trades were still slightly negative (about −$21), so there is no raw edge yet; fees then made it −14%.
+- **At the low fee it trades constantly and loses.** Before fees the trades were still negative (about −$21 over 30 days, −$46 over 90), so there is no raw edge yet; fees then made it −14% and −31%.
+- **The few Coinbase-fee trades were slightly positive before fees** (+$3.44 on 15 trades over 90 days), but 15 trades is far too few to mean anything.
 - **The stop is the problem.** A 13% win rate means price almost always comes back to the wick. With the stop exactly at the wick, ordinary one-minute noise takes it out before the move to the opposite pool.
 
 ### Round 2: follow the liquidity (running)
