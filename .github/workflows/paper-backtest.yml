@@ -19,7 +19,7 @@ on:
         description: Products for the one-minute liquidity sweep replay
         default: BTC-USD,ETH-USD,SOL-USD,XRP-USD,DOGE-USD,AVAX-USD,LINK-USD
       only:
-        description: Run only one job (backtest, sweep_1m or dex_1m); empty runs all
+        description: Run only one job (backtest, sweep_1m, dex_1m or tournament); empty runs all
         default: ""
       variants:
         description: Comma-separated sweep_1m/dex_1m variants to run (e.g. magnet-aggressive); empty runs all
@@ -199,3 +199,43 @@ jobs:
         with:
           name: paper-backtest-dex-1m-${{ matrix.variant }}-${{ matrix.days }}d
           path: elevated-associates/trading/paper_runs/ci
+
+  tournament:
+    if: ${{ !inputs.only || inputs.only == 'tournament' }}
+    # Strategy tournament: 44 candidates across all 7 strategy families, run in parallel on one
+    # download. First 2/3 of the history picks settings; the last 1/3 is the out-of-sample test.
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      max-parallel: 2  # keeps the free candle APIs under their rate limits
+      matrix:
+        include:
+          - dataset: coinbase-1m-30d-fee0.006
+            flags: "--history 30 --granularity 60 --fee 0.006 --products BTC-USD,ETH-USD,SOL-USD"
+          - dataset: coinbase-1m-30d-fee0.001
+            flags: "--history 30 --granularity 60 --fee 0.001 --products BTC-USD,ETH-USD,SOL-USD"
+          - dataset: coinbase-1h-365d-fee0.006
+            flags: "--history 365 --granularity 3600 --fee 0.006 --products BTC-USD,ETH-USD,SOL-USD"
+          - dataset: dex-1m-30d
+            flags: "--dex-history 30 --dex-fee 0.003 --products JUP:SOL,JUP:JUP,JUP:BONK,JUP:WIF"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run the tournament
+        working-directory: elevated-associates/trading
+        env:
+          FLAGS: ${{ matrix.flags }}
+        run: |
+          # shellcheck disable=SC2086  # FLAGS is a list of options
+          python tournament.py $FLAGS --out paper_runs/ci
+          cat paper_runs/ci/leaderboard.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-tournament-${{ matrix.dataset }}
+          path: |
+            elevated-associates/trading/paper_runs/ci/leaderboard.*

@@ -203,6 +203,95 @@ class TrendBreakout(Strategy):
         return None
 
 
+class BarStrategy(Strategy):
+    """Helper for strategies on bars: candle ticks are one bar each; quotes are grouped `bar_ticks` at a time."""
+
+    def __init__(self, bar_ticks=60):
+        super().__init__()
+        self.bar_ticks = bar_ticks
+        self.bar_state = {}
+
+    def bar(self, tick):
+        """(high, low, close) when a bar completes, else None."""
+        if tick.high is not None and tick.low is not None:
+            return tick.high, tick.low, tick.mid
+        st = self.bar_state.setdefault(tick.product, {"n": 0, "hi": tick.mid, "lo": tick.mid})
+        st["n"] += 1
+        st["hi"], st["lo"] = max(st["hi"], tick.mid), min(st["lo"], tick.mid)
+        if st["n"] < self.bar_ticks:
+            return None
+        out = (st["hi"], st["lo"], tick.mid)
+        self.bar_state[tick.product] = {"n": 0, "hi": tick.mid, "lo": tick.mid}
+        return out
+
+
+class RsiReversion(BarStrategy):
+    """Buy when the `period`-bar RSI drops below `buy_below` (oversold); sell when it rises above `sell_above`."""
+    name = "rsi_reversion"
+
+    def __init__(self, period=14, buy_below=25, sell_above=55, bar_ticks=60):
+        super().__init__(bar_ticks)
+        self.period, self.buy_below, self.sell_above = period, buy_below, sell_above
+        self.state = {}
+
+    def signal(self, tick):
+        b = self.bar(tick)
+        if b is None:
+            return None
+        close = b[2]
+        st = self.state.setdefault(tick.product, {"prev": None, "gain": 0.0, "loss": 0.0, "n": 0, "long": False})
+        if st["prev"] is None:
+            st["prev"] = close
+            return None
+        change, st["prev"] = close - st["prev"], close
+        a = 1 / self.period  # Wilder's smoothing
+        st["gain"] += a * (max(change, 0) - st["gain"])
+        st["loss"] += a * (max(-change, 0) - st["loss"])
+        st["n"] += 1
+        if st["n"] < self.period:
+            return None
+        rsi = 100.0 if st["loss"] == 0 else 100 - 100 / (1 + st["gain"] / st["loss"])
+        if not st["long"] and rsi < self.buy_below:
+            st["long"] = True
+            return "buy"
+        if st["long"] and rsi > self.sell_above:
+            st["long"] = False
+            return "sell"
+        return None
+
+
+class MomentumBreakout(BarStrategy):
+    """Buy when the close is up more than `threshold` over `lookback` bars (strong momentum); sell when the
+    momentum fades below zero or after `max_hold` bars."""
+    name = "momentum"
+
+    def __init__(self, lookback=60, threshold=0.01, max_hold=120, bar_ticks=60):
+        super().__init__(bar_ticks)
+        self.lookback, self.threshold, self.max_hold = lookback, threshold, max_hold
+        self.state = {}
+
+    def signal(self, tick):
+        b = self.bar(tick)
+        if b is None:
+            return None
+        close = b[2]
+        st = self.state.setdefault(tick.product, {"closes": deque(maxlen=self.lookback + 1), "held": None})
+        st["closes"].append(close)
+        if len(st["closes"]) <= self.lookback:
+            return None
+        roc = close / st["closes"][0] - 1
+        if st["held"] is None:
+            if roc > self.threshold:
+                st["held"] = 0
+                return "buy"
+            return None
+        st["held"] += 1
+        if roc < 0 or st["held"] >= self.max_hold:
+            st["held"] = None
+            return "sell"
+        return None
+
+
 class LiquiditySweep(Strategy):
     """Liquidity sweep reversal on short bars (built for one-minute candles).
 
@@ -376,7 +465,8 @@ class LiquidityMagnet(LiquiditySweep):
 # Defaults (Config) stay at the ELE-39 limits; changing those is Nicole's call.
 AGGRESSIVE = {"max_positions": 10, "profile": "aggressive"}
 
-STRATEGIES = {cls.name: cls for cls in (EmaCross, ZScoreReversion, TrendBreakout, LiquiditySweep, LiquidityMagnet)}
+STRATEGIES = {cls.name: cls for cls in (EmaCross, ZScoreReversion, TrendBreakout, LiquiditySweep, LiquidityMagnet,
+                                         RsiReversion, MomentumBreakout)}
 
 
 # ---------------------------------------------------------------- broker
@@ -588,11 +678,25 @@ def coinbase_history_feed(products, days, granularity=3600, end=None, fetch=_get
 
 
 def replay_feed(path):
+    """Rows ts,product,bid,ask with optional high,low (as written by write_ticks)."""
     with open(path, newline="", encoding="utf-8") as f:
         for row in csv.reader(f):
             if not row or row[0] == "ts":
                 continue
-            yield Tick(float(row[0]), row[1], float(row[2]), float(row[3]))
+            hl = (float(row[4]), float(row[5])) if len(row) >= 6 and row[4] != "" else (None, None)
+            yield Tick(float(row[0]), row[1], float(row[2]), float(row[3]), *hl)
+
+
+def write_ticks(ticks, path):
+    """Save ticks so a download can be replayed many times (see tournament.py)."""
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["ts", "product", "bid", "ask", "high", "low"])
+        n = 0
+        for t in ticks:
+            w.writerow([t.ts, t.product, t.bid, t.ask, "" if t.high is None else t.high, "" if t.low is None else t.low])
+            n += 1
+    return n
 
 
 # ---------------------------------------------------------------- runner
@@ -674,6 +778,8 @@ def main():
     for s in (s.strip() for s in args.strategies.split(",")):
         if s == "trend_breakout":
             strategies.append(STRATEGIES[s](bar_ticks=bar_ticks))
+        elif s in ("rsi_reversion", "momentum"):
+            strategies.append(STRATEGIES[s](bar_ticks=minute_ticks))
         elif s in ("liquidity_sweep", "liquidity_magnet"):
             opts = {"lookback": args.sweep_lookback, "max_hold": args.sweep_max_hold,
                     "stop_buffer": args.sweep_stop_buffer, "trail": args.sweep_trail}
