@@ -21,6 +21,18 @@ It needs only Python 3.9+ and no packages. Each run writes `paper_runs/<time>/le
 
 **Where to run it around the clock (all $0):** Nicole's Mac, with `caffeinate -i python3 alpaca_paper.py`, or any always-on machine she owns. Claude's cloud sessions are temporary and their network policy currently blocks Alpaca and Coinbase, so they are for building and testing only.
 
+## Solana DEX (Jupiter), paper only
+
+```bash
+python3 paperbot.py --jupiter                                   # JUP:SOL, quotes every 5 s
+python3 paperbot.py --jupiter --products JUP:SOL,JUP:JUP --strategies trend_breakout
+python3 paperbot.py --jupiter --products "JUP:<mint>@<decimals>" # any other token
+```
+
+Prices come from Jupiter's free public quote API (`lite-api.jup.ag/swap/v1/quote`). Each poll asks what a buy and a sell of one paper trade ($50, the 5% position size) would return, so the gap between bid and ask is the real round-trip cost, including pool fees and price impact. The broker then adds only the Solana network fee (`Config.dex_fee`, 0.03%), not the 0.6% exchange fee.
+
+`jupiter_feed.py` only reads quotes. It has no wallet, never builds or sends a transaction, and reads no keys; a unit test fails if swap, signing or key code is ever added. Known tokens: SOL, JUP, BONK, WIF. Keep tokens × 2 ÷ interval under about 1 request a second (the free tier's limit). Jupiter has no price history, so DEX strategies can only be scored by running forward; `--history` backtests stay on Coinbase. Cloud sessions can't reach Jupiter; run it on your Mac or a GitHub Actions runner.
+
 ## Deploy: run the paper bot around the clock
 
 Run it on a machine you own (your Mac is free). One-time setup:

@@ -10,6 +10,7 @@ Usage:
     python paperbot.py --synthetic --ticks 20000                   # offline random-walk run
     python paperbot.py --replay prices.csv                         # CSV rows: ts,product,bid,ask
     python paperbot.py --history 90 --strategies trend_breakout    # 90 days of hourly candles in seconds
+    python paperbot.py --jupiter --products JUP:SOL,JUP:JUP         # Solana DEX quotes (Jupiter), simulated swaps
 
 Outputs (in --out, default ./paper_runs/<timestamp>/):
     ledger.jsonl   every fill, stop and kill-switch event
@@ -56,6 +57,7 @@ class Config:
     starting_cash: float = 1000.0
     taker_fee: float = 0.006          # crypto taker fee; Coinbase Advanced entry tier is 0.60%
     stock_fee: float = 0.0            # US stocks/ETFs (commission-free brokers)
+    dex_fee: float = 0.0003           # Solana network + priority fee on a ~$50 swap; pool fees are already in Jupiter quotes
     slippage_bps: float = 2.0         # extra cost beyond the quoted bid/ask
     # Risk policy (Linear ELE-39): <=5% per position, 3% daily loss halt, <=5 positions, no leverage.
     risk_per_trade: float = 0.05      # fraction of equity allocated per position
@@ -69,7 +71,9 @@ class Config:
     gate_max_drawdown: float = 0.10
 
     def fee(self, product):
-        """Crypto pairs look like BTC-USD or BTC/USD; anything else is treated as a stock/ETF."""
+        """JUP:<token> is a Solana DEX swap; BTC-USD or BTC/USD is a crypto pair; anything else is a stock/ETF."""
+        if product.upper().startswith("JUP:"):
+            return self.dex_fee
         return self.taker_fee if ("-" in product or "/" in product) else self.stock_fee
 
 
@@ -436,6 +440,8 @@ def main():
     src.add_argument("--live", action="store_true", help="poll Coinbase public tickers")
     src.add_argument("--synthetic", action="store_true", help="offline random walk")
     src.add_argument("--replay", metavar="CSV", help="replay ts,product,bid,ask rows")
+    src.add_argument("--jupiter", action="store_true",
+                     help="poll Jupiter (Solana DEX) quotes; products like JUP:SOL, JUP:JUP, JUP:<mint>@<decimals>")
     src.add_argument("--history", type=float, metavar="DAYS", help="replay DAYS of public Coinbase candles")
     ap.add_argument("--granularity", type=int, default=3600, choices=(60, 300, 900, 3600, 21600, 86400),
                     help="candle seconds for --history")
@@ -445,13 +451,18 @@ def main():
                     help="days of paper data the gate requires (measured from tick timestamps)")
     ap.add_argument("--products", default="BTC-USD,ETH-USD,SOL-USD")
     ap.add_argument("--strategies", default=",".join(STRATEGIES))
-    ap.add_argument("--interval", type=float, default=1.0, help="seconds between live polls")
+    ap.add_argument("--interval", type=float, default=None,
+                    help="seconds between live polls (default 1; 5 for --jupiter to stay under its free rate limit)")
     ap.add_argument("--ticks", type=int, default=None, help="stop after N polls (live) or N steps (synthetic)")
     ap.add_argument("--fee", type=float, default=Config.taker_fee)
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
     products = [p.strip() for p in args.products.split(",") if p.strip()]
+    if args.interval is None:
+        args.interval = 5.0 if args.jupiter else 1.0
+    if args.jupiter and args.products == ap.get_default("products"):
+        products = ["JUP:SOL"]
     out = Path(args.out or f"paper_runs/{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}")
     out.mkdir(parents=True, exist_ok=True)
     broker = PaperBroker(Config(taker_fee=args.fee, gate_min_days=args.gate_min_days),
@@ -467,6 +478,10 @@ def main():
         feed = synthetic_feed(products, args.ticks or 20_000)
     elif args.history:
         feed = coinbase_history_feed(products, args.history, args.granularity)
+    elif args.jupiter:
+        from jupiter_feed import jupiter_feed  # imported here: jupiter_feed imports Tick from this module
+        notional = broker.cfg.starting_cash * broker.cfg.risk_per_trade
+        feed = jupiter_feed(products, notional_usd=notional, interval=args.interval, max_ticks=args.ticks)
     else:
         feed = replay_feed(args.replay)
 
