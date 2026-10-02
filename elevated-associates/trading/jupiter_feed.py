@@ -17,6 +17,7 @@ Products are named "JUP:<SYMBOL>" (for example JUP:SOL). Use a known symbol, or
 import json
 import sys
 import time
+import urllib.error
 import urllib.parse
 import urllib.request
 
@@ -104,7 +105,24 @@ GECKO_TOKEN_POOLS = GECKO + "/networks/solana/tokens/{}/pools?page=1"
 GECKO_OHLCV = GECKO + "/networks/solana/pools/{}/ohlcv/minute?aggregate={}&limit=1000&currency=usd&token={}"
 
 
-def top_pool(mint, fetch=_get_json):
+def polite_get_json(url, retries=6, base_wait=10.0, sleep=time.sleep, get=_get_json):
+    """GET JSON, waiting and retrying when the free API answers 429 Too Many Requests.
+
+    Honors a Retry-After header when present, otherwise waits base_wait, 2x, 4x... seconds.
+    """
+    for attempt in range(retries + 1):
+        try:
+            return get(url)
+        except urllib.error.HTTPError as e:
+            if e.code != 429 or attempt == retries:
+                raise
+            retry_after = (e.headers or {}).get("Retry-After")
+            wait = float(retry_after) if retry_after and str(retry_after).isdigit() else base_wait * 2 ** attempt
+            print(f"rate limited, waiting {wait:.0f}s", file=sys.stderr)
+            sleep(wait)
+
+
+def top_pool(mint, fetch=polite_get_json):
     """Address of the highest-volume Solana pool for `mint` (GeckoTerminal lists pools by volume)."""
     pools = fetch(GECKO_TOKEN_POOLS.format(mint)).get("data") or []
     if not pools:
@@ -112,7 +130,7 @@ def top_pool(mint, fetch=_get_json):
     return pools[0]["attributes"]["address"]
 
 
-def dex_history_feed(products, days, aggregate=1, end=None, fetch=_get_json, pause=2.1, sleep=time.sleep):
+def dex_history_feed(products, days, aggregate=1, end=None, fetch=polite_get_json, pause=2.1, sleep=time.sleep):
     """Replay `days` of one-minute DEX candles (from on-chain swaps) for each `JUP:` product.
 
     Uses each token's highest-volume Solana pool on GeckoTerminal. Candles are

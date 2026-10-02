@@ -135,3 +135,51 @@ class DexHistoryTest(unittest.TestCase):
     def test_replay_charges_the_dex_fee(self):
         cfg = Config(dex_fee=0.003)
         self.assertEqual(cfg.fee("JUP:SOL"), 0.003)
+
+
+class PoliteGetTest(unittest.TestCase):
+    def _http_error(self, code, retry_after=None):
+        import urllib.error
+        headers = {"Retry-After": retry_after} if retry_after else {}
+        return urllib.error.HTTPError("u", code, "x", headers, None)
+
+    def test_retries_429_then_succeeds(self):
+        calls, waits = [], []
+
+        def get(url):
+            calls.append(url)
+            if len(calls) < 3:
+                raise self._http_error(429)
+            return {"ok": True}
+
+        out = jupiter_feed.polite_get_json("u", base_wait=1, sleep=waits.append, get=get)
+        self.assertEqual(out, {"ok": True})
+        self.assertEqual(waits, [1, 2])
+
+    def test_honors_retry_after(self):
+        waits = []
+        responses = [self._http_error(429, "7"), {"ok": 1}]
+
+        def get(url):
+            r = responses.pop(0)
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+        jupiter_feed.polite_get_json("u", sleep=waits.append, get=get)
+        self.assertEqual(waits, [7.0])
+
+    def test_other_errors_and_exhausted_retries_raise(self):
+        import urllib.error
+
+        def boom(url):
+            raise self._http_error(500)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            jupiter_feed.polite_get_json("u", sleep=lambda s: None, get=boom)
+
+        def always_429(url):
+            raise self._http_error(429)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            jupiter_feed.polite_get_json("u", retries=2, sleep=lambda s: None, get=always_429)

@@ -150,9 +150,10 @@ jobs:
     # Decentralized: one-minute candles from Solana DEX pools (GeckoTerminal, built from on-chain swaps).
     # --dex-fee 0.003 charges each swap a 0.25% pool fee plus network fee and margin.
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 60
     strategy:
       fail-fast: false
+      max-parallel: 2  # GeckoTerminal's free API is rate-limited; more parallel jobs get HTTP 429
       matrix:
         days: ["30", "90"]
         variant: [baseline, follow, magnet, magnet-follow]
