@@ -125,3 +125,24 @@ The `dex_1m` job in `paper-backtest.yml` runs baseline, follow, magnet and magne
 2. Volume filter: real stop runs print above-average volume on the sweep bar.
 3. Prior-day high/low as the pool instead of a rolling window.
 4. Forward paper test on the Jupiter feed for the survivor.
+
+## Round 3: tournament and top-trader copies (2026-10-02)
+
+The single-strategy runs above test one idea at a time. `tournament.py` now replays one download through 44 candidates in parallel. Those candidates cover sweep, magnet, trend, EMA, z-score, RSI and momentum, with several settings each. It picks settings on the first two-thirds of the history and scores them on the last third, which they never saw. That is the defence against fooling ourselves with 44 tries: a candidate only counts if it is **robust** (positive in both parts), and then needs confirming on other windows.
+
+`hl_copy.py` tests a different source of edge: real Hyperliquid traders with three straight profitable months. The replay copies only their fresh longs, one candle late, unleveraged at 5% per position. So it measures what a follower actually gets, not what the traders made.
+
+Results go in the tables below once the workflow runs finish.
+
+| Run | Robust candidates | Best robust (test return) | Notes |
+|---|---|---|---|
+| Coinbase 1m, 30 d, fee 0.6% | | | |
+| Coinbase 1m, 30 d, fee 0.1% | | | |
+| Coinbase 1h, 365 d, fee 0.6% | | | |
+| Solana DEX 1m, 30 d, fee 0.3% | | | |
+
+| Copy replay | Return | Trades | Win | Max DD |
+|---|---|---|---|---|
+| 30 d, 5m candles | | | | |
+| 30 d, 5m, aggressive | | | | |
+| 7 d, 1m candles | | | | |

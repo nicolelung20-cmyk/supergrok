@@ -61,6 +61,7 @@ class Config:
     taker_fee: float = 0.006          # crypto taker fee; Coinbase Advanced entry tier is 0.60%
     stock_fee: float = 0.0            # US stocks/ETFs (commission-free brokers)
     dex_fee: float = 0.0003           # Solana network + priority fee on a ~$50 swap; pool fees are already in Jupiter quotes
+    hl_fee: float = 0.00045           # Hyperliquid perp taker fee (base tier) for HL:<coin> copies
     slippage_bps: float = 2.0         # extra cost beyond the quoted bid/ask
     # Risk policy (Linear ELE-39): <=5% per position, 3% daily loss halt, <=5 positions, no leverage.
     risk_per_trade: float = 0.05      # fraction of equity allocated per position
@@ -75,9 +76,12 @@ class Config:
     gate_max_drawdown: float = 0.10
 
     def fee(self, product):
-        """JUP:<token> is a Solana DEX swap; BTC-USD or BTC/USD is a crypto pair; anything else is a stock/ETF."""
+        """JUP:<token> is a Solana DEX swap; HL:<coin> a Hyperliquid copy; BTC-USD or BTC/USD a crypto pair;
+        anything else is a stock/ETF."""
         if product.upper().startswith("JUP:"):
             return self.dex_fee
+        if product.upper().startswith("HL:"):
+            return self.hl_fee
         return self.taker_fee if ("-" in product or "/" in product) else self.stock_fee
 
 

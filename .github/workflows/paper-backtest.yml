@@ -19,10 +19,13 @@ on:
         description: Products for the one-minute liquidity sweep replay
         default: BTC-USD,ETH-USD,SOL-USD,XRP-USD,DOGE-USD,AVAX-USD,LINK-USD
       only:
-        description: Run only one job (backtest, sweep_1m, dex_1m or tournament); empty runs all
+        description: Run only one job (backtest, sweep_1m, dex_1m, tournament or hl_copy); empty runs all
         default: ""
       variants:
         description: Comma-separated sweep_1m/dex_1m variants to run (e.g. magnet-aggressive); empty runs all
+        default: ""
+      hl_traders:
+        description: Hyperliquid addresses for hl_copy (comma-separated); empty uses the chosen top traders
         default: ""
       dex_products:
         description: Solana DEX tokens for the one-minute DEX replay (JUP:<symbol> or JUP:<mint>@<decimals>)
@@ -239,3 +242,41 @@ jobs:
           name: paper-tournament-${{ matrix.dataset }}
           path: |
             elevated-associates/trading/paper_runs/ci/leaderboard.*
+
+  hl_copy:
+    if: ${{ !inputs.only || inputs.only == 'hl_copy' }}
+    # Replays what copying the chosen Hyperliquid top traders' fresh longs would have earned,
+    # from their real fills, acting one candle after each fill. Read-only info API, no keys.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      max-parallel: 2
+      matrix:
+        include:
+          - run: 30d-5m
+            flags: "--replay 30 --interval 5m"
+          - run: 30d-5m-aggressive
+            flags: "--replay 30 --interval 5m --aggressive"
+          - run: 7d-1m
+            flags: "--replay 7 --interval 1m"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Replay copy-trading of the top traders
+        working-directory: elevated-associates/trading
+        env:
+          FLAGS: ${{ matrix.flags }}
+          TRADERS: ${{ inputs.hl_traders }}
+        run: |
+          # shellcheck disable=SC2086  # FLAGS is a list of options
+          python hl_copy.py $FLAGS ${TRADERS:+--traders "$TRADERS"} --out paper_runs/ci
+          cat paper_runs/ci/report.md >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-hl-copy-${{ matrix.run }}
+          path: elevated-associates/trading/paper_runs/ci
