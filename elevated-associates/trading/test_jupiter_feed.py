@@ -166,8 +166,21 @@ class PoliteGetTest(unittest.TestCase):
                 raise r
             return r
 
-        jupiter_feed.polite_get_json("u", sleep=waits.append, get=get)
+        jupiter_feed.polite_get_json("u", base_wait=1, sleep=waits.append, get=get)
         self.assertEqual(waits, [7.0])
+
+    def test_retry_after_zero_still_backs_off(self):
+        waits = []
+        responses = [self._http_error(429, "0"), self._http_error(429, "0"), {"ok": 1}]
+
+        def get(url):
+            r = responses.pop(0)
+            if isinstance(r, Exception):
+                raise r
+            return r
+
+        jupiter_feed.polite_get_json("u", base_wait=10, sleep=waits.append, get=get)
+        self.assertEqual(waits, [10, 20])
 
     def test_other_errors_and_exhausted_retries_raise(self):
         import urllib.error

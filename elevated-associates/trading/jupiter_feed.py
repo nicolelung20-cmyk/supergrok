@@ -108,7 +108,8 @@ GECKO_OHLCV = GECKO + "/networks/solana/pools/{}/ohlcv/minute?aggregate={}&limit
 def polite_get_json(url, retries=6, base_wait=10.0, sleep=time.sleep, get=_get_json):
     """GET JSON, waiting and retrying when the free API answers 429 Too Many Requests.
 
-    Honors a Retry-After header when present, otherwise waits base_wait, 2x, 4x... seconds.
+    Waits base_wait, 2x, 4x... seconds, or longer if a Retry-After header asks for more.
+    GeckoTerminal sends "Retry-After: 0", so the header alone would retry with no pause.
     """
     for attempt in range(retries + 1):
         try:
@@ -117,7 +118,8 @@ def polite_get_json(url, retries=6, base_wait=10.0, sleep=time.sleep, get=_get_j
             if e.code != 429 or attempt == retries:
                 raise
             retry_after = (e.headers or {}).get("Retry-After")
-            wait = float(retry_after) if retry_after and str(retry_after).isdigit() else base_wait * 2 ** attempt
+            hinted = float(retry_after) if retry_after and str(retry_after).isdigit() else 0.0
+            wait = max(hinted, base_wait * 2 ** attempt)
             print(f"rate limited, waiting {wait:.0f}s", file=sys.stderr)
             sleep(wait)
 
