@@ -10,6 +10,7 @@ Usage:
     python paperbot.py --synthetic --ticks 20000                   # offline random-walk run
     python paperbot.py --replay prices.csv                         # CSV rows: ts,product,bid,ask
     python paperbot.py --history 90 --strategies trend_breakout    # 90 days of hourly candles in seconds
+    python paperbot.py --history 30 --granularity 60 --strategies liquidity_sweep   # one-minute sweeps
     python paperbot.py --jupiter --products JUP:SOL,JUP:JUP         # Solana DEX quotes (Jupiter), simulated swaps
 
 Outputs (in --out, default ./paper_runs/<timestamp>/):
@@ -46,6 +47,8 @@ class Tick:
     product: str
     bid: float
     ask: float
+    high: float = None   # candle high/low when the tick is a whole candle (history replay); None for quotes
+    low: float = None
 
     @property
     def mid(self):
@@ -199,7 +202,70 @@ class TrendBreakout(Strategy):
         return None
 
 
-STRATEGIES = {cls.name: cls for cls in (EmaCross, ZScoreReversion, TrendBreakout)}
+class LiquiditySweep(Strategy):
+    """Liquidity sweep reversal on short bars (built for one-minute candles).
+
+    A sweep is a bar whose low trades below the lowest low of the prior `lookback` bars (where
+    resting sell stops sit) and then closes back above that level. Enter long on the close of the
+    sweep bar. Exit when a later bar trades back below the sweep's wick (invalidated), reaches the
+    highest high of the lookback (the opposite pool of liquidity), or after `max_hold` bars.
+
+    Long only (spot). Setups are skipped unless the target is at least `edge_multiple` round-trip
+    costs away and at least `min_rr` times the distance to the wick, so fees cannot eat the edge.
+    Ticks that carry candle high/low are one bar each; plain quotes are grouped `bar_ticks` at a time.
+    """
+    name = "liquidity_sweep"
+
+    def __init__(self, bar_ticks=60, lookback=30, max_hold=30, edge_multiple=2.0,
+                 round_trip_cost=0.0125, min_rr=1.5):
+        super().__init__()
+        self.bar_ticks, self.lookback, self.max_hold = bar_ticks, lookback, max_hold
+        self.edge_multiple, self.round_trip_cost, self.min_rr = edge_multiple, round_trip_cost, min_rr
+        self.state = {}
+
+    def _bar(self, st, tick):
+        """Return (high, low, close) when a bar completes, else None."""
+        if tick.high is not None and tick.low is not None:
+            return tick.high, tick.low, tick.mid
+        st["n"] += 1
+        st["hi"] = tick.mid if st["hi"] is None else max(st["hi"], tick.mid)
+        st["lo"] = tick.mid if st["lo"] is None else min(st["lo"], tick.mid)
+        if st["n"] < self.bar_ticks:
+            return None
+        bar = (st["hi"], st["lo"], tick.mid)
+        st["n"], st["hi"], st["lo"] = 0, None, None
+        return bar
+
+    def signal(self, tick):
+        st = self.state.setdefault(tick.product, {
+            "n": 0, "hi": None, "lo": None, "bars": deque(maxlen=self.lookback), "trade": None})
+        bar = self._bar(st, tick)
+        if bar is None:
+            return None
+        high, low, close = bar
+        bars = list(st["bars"])
+        st["bars"].append((high, low))
+        trade = st["trade"]
+        if trade is not None:
+            trade["held"] += 1
+            if low <= trade["stop"] or high >= trade["target"] or trade["held"] >= self.max_hold:
+                st["trade"] = None
+                return "sell"
+            return None
+        if len(bars) < self.lookback:
+            return None
+        pool_low = min(b[1] for b in bars)
+        pool_high = max(b[0] for b in bars)
+        if not (low < pool_low < close):
+            return None
+        reward, risk = (pool_high - close) / close, (close - low) / close
+        if reward < self.edge_multiple * self.round_trip_cost or risk <= 0 or reward < self.min_rr * risk:
+            return None
+        st["trade"] = {"stop": low, "target": pool_high, "held": 0}
+        return "buy"
+
+
+STRATEGIES = {cls.name: cls for cls in (EmaCross, ZScoreReversion, TrendBreakout, LiquiditySweep)}
 
 
 # ---------------------------------------------------------------- broker
@@ -379,11 +445,13 @@ def _get_json(url):
         return json.load(r)
 
 
-def coinbase_history_feed(products, days, granularity=3600, end=None, fetch=_get_json):
+def coinbase_history_feed(products, days, granularity=3600, end=None, fetch=_get_json, pause=0.0):
     """Replay `days` of public Coinbase candles as ticks at each candle's close.
 
     The gate measures time from tick timestamps, so 90 days of history replays in seconds.
     Coinbase returns at most 300 candles per request, newest first; rows are merged by time.
+    Candles are [time, low, high, open, close, volume]; each tick carries the candle's high and low.
+    `pause` seconds between requests keeps long one-minute pulls under the public rate limit.
     """
     end = int(end if end is not None else time.time()) // granularity * granularity
     start = end - int(days * 86_400) - granularity  # one extra candle so first-to-last spans `days`
@@ -398,10 +466,12 @@ def coinbase_history_feed(products, days, granularity=3600, end=None, fetch=_get
                 ts, close = int(c[0]), float(c[4])
                 if start <= ts < end and ts not in seen:
                     seen.add(ts)
-                    rows.append((ts, product, close))
+                    rows.append((ts, product, close, float(c[2]), float(c[1])))
             hi = lo
-    for ts, product, close in sorted(rows):
-        yield Tick(float(ts), product, close, close)
+            if pause:
+                time.sleep(pause)
+    for ts, product, close, high, low in sorted(rows):
+        yield Tick(float(ts), product, close, close, high, low)
 
 
 def replay_feed(path):
@@ -469,15 +539,25 @@ def main():
                          ledger_path=out / "ledger.jsonl")
     tick_seconds = args.granularity if args.history else args.interval
     bar_ticks = args.bar_ticks or max(1, round(3600 / tick_seconds))
-    strategies = [STRATEGIES[s.strip()](bar_ticks=bar_ticks) if s.strip() == "trend_breakout"
-                  else STRATEGIES[s.strip()]() for s in args.strategies.split(",")]
+    cfg = broker.cfg
+    round_trip = 2 * (cfg.fee(products[0]) + cfg.slippage_bps / 10_000)
+    minute_ticks = max(1, round(60 / tick_seconds))
+    strategies = []
+    for s in (s.strip() for s in args.strategies.split(",")):
+        if s == "trend_breakout":
+            strategies.append(STRATEGIES[s](bar_ticks=bar_ticks))
+        elif s == "liquidity_sweep":
+            strategies.append(STRATEGIES[s](bar_ticks=minute_ticks, round_trip_cost=round_trip))
+        else:
+            strategies.append(STRATEGIES[s]())
 
     if args.live:
         feed = coinbase_feed(products, args.interval, args.ticks)
     elif args.synthetic:
         feed = synthetic_feed(products, args.ticks or 20_000)
     elif args.history:
-        feed = coinbase_history_feed(products, args.history, args.granularity)
+        feed = coinbase_history_feed(products, args.history, args.granularity,
+                                     pause=0.15 if args.granularity < 900 else 0.0)
     elif args.jupiter:
         from jupiter_feed import jupiter_feed  # imported here: jupiter_feed imports Tick from this module
         notional = broker.cfg.starting_cash * broker.cfg.risk_per_trade
