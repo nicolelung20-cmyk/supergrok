@@ -21,6 +21,9 @@ on:
       only:
         description: Run only one job (backtest, sweep_1m or dex_1m); empty runs all
         default: ""
+      variants:
+        description: Comma-separated sweep_1m/dex_1m variants to run (e.g. magnet-aggressive); empty runs all
+        default: ""
       dex_products:
         description: Solana DEX tokens for the one-minute DEX replay (JUP:<symbol> or JUP:<mint>@<decimals>)
         default: JUP:SOL,JUP:JUP,JUP:BONK,JUP:WIF
@@ -81,7 +84,7 @@ jobs:
       matrix:
         days: ["30", "90"]
         fee: ["0.006", "0.001"]
-        variant: [baseline, buffer, big-pools, follow, magnet, magnet-follow]
+        variant: [baseline, buffer, big-pools, follow, magnet, magnet-follow, follow-aggressive, magnet-aggressive]
         include:
           # baseline: stop at the wick, 30-minute pools, exit at the first target
           - variant: baseline
@@ -101,6 +104,11 @@ jobs:
           # magnet-follow: as magnet, then trail under the last 15 bars' lows past the magnet
           - variant: magnet-follow
             flags: "--strategies liquidity_magnet --sweep-stop-buffer 0.5 --sweep-trail 15"
+          # aggressive (opt-in profile): up to 10 open positions on 12 coins; other ELE-39 limits unchanged
+          - variant: follow-aggressive
+            flags: "--aggressive --products BTC-USD,ETH-USD,SOL-USD,XRP-USD,DOGE-USD,AVAX-USD,LINK-USD,ADA-USD,LTC-USD,DOT-USD,BCH-USD,UNI-USD --sweep-lookback 240 --sweep-max-hold 240 --sweep-stop-buffer 0.5 --sweep-trail 15"
+          - variant: magnet-aggressive
+            flags: "--aggressive --products BTC-USD,ETH-USD,SOL-USD,XRP-USD,DOGE-USD,AVAX-USD,LINK-USD,ADA-USD,LTC-USD,DOT-USD,BCH-USD,UNI-USD --strategies liquidity_magnet --sweep-stop-buffer 0.5"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -109,6 +117,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Replay one-minute candles through liquidity_sweep / liquidity_magnet
+        if: ${{ !inputs.variants || contains(format(',{0},', inputs.variants), format(',{0},', matrix.variant)) }}
         working-directory: elevated-associates/trading
         env:
           DAYS: ${{ matrix.days }}
@@ -124,12 +133,14 @@ jobs:
           import json, os
           s = json.load(open("paper_runs/ci/summary.json"))
           g = s["gate"]["checks"]
-          print(f"### liquidity {os.environ['VARIANT']} · 1m · {os.environ['DAYS']} days · fee {os.environ['FEE']} · {os.environ['PRODUCTS']}")
+          print(f"### liquidity {os.environ['VARIANT']} · 1m · {os.environ['DAYS']} days · fee {os.environ['FEE']} · "
+                f"profile {s['risk_profile']} (max {s['max_positions']} open)")
           print(f"trades {s['closed_trades']} · win {s['win_rate_pct']}% · expectancy {s['expectancy']} · "
                 f"max DD {s['max_drawdown_pct']}% · return {s['return_pct']}% · fees {s['fees_paid']}")
           print(f"gate: {'PASS' if all(g.values()) else 'not passed'} {g}")
           PY
       - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.variants || contains(format(',{0},', inputs.variants), format(',{0},', matrix.variant)) }}
         with:
           name: paper-backtest-sweep-1m-${{ matrix.variant }}-${{ matrix.days }}d-fee${{ matrix.fee }}
           path: elevated-associates/trading/paper_runs/ci
@@ -162,6 +173,7 @@ jobs:
         with:
           python-version: "3.11"
       - name: Replay one-minute Solana DEX candles
+        if: ${{ !inputs.variants || contains(format(',{0},', inputs.variants), format(',{0},', matrix.variant)) }}
         working-directory: elevated-associates/trading
         env:
           DAYS: ${{ matrix.days }}
@@ -182,6 +194,7 @@ jobs:
           print(f"gate: {'PASS' if all(g.values()) else 'not passed'} {g}")
           PY
       - uses: actions/upload-artifact@v4
+        if: ${{ !inputs.variants || contains(format(',{0},', inputs.variants), format(',{0},', matrix.variant)) }}
         with:
           name: paper-backtest-dex-1m-${{ matrix.variant }}-${{ matrix.days }}d
           path: elevated-associates/trading/paper_runs/ci

@@ -21,6 +21,10 @@ It needs only Python 3.9+ and no packages. Each run writes `paper_runs/<time>/le
 
 **Where to run it around the clock (all $0):** Nicole's Mac, with `caffeinate -i python3 alpaca_paper.py`, or any always-on machine she owns. Claude's cloud sessions are temporary and their network policy currently blocks Alpaca and Coinbase, so they are for building and testing only.
 
+## Aggressive profile (opt-in)
+
+`--aggressive` allows up to 10 open positions instead of 5. Every other ELE-39 limit stays the same, and `summary.json` records `risk_profile` so results are never mixed up. It only has an effect with more than 5 products, since each strategy holds one position per product.
+
 ## Solana DEX (Jupiter), paper only
 
 ```bash

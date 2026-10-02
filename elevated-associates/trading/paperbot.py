@@ -68,6 +68,7 @@ class Config:
     take_profit: float = 0.04
     daily_kill_switch: float = 0.03   # pause new entries after -3% on the UTC day
     max_positions: int = 5
+    profile: str = "ele-39"           # which risk profile produced this run (shown in summary.json)
     # Paper-to-live gate (CHARTER.md section 2 + Linear ELE-40). Human steps are tracked separately.
     gate_min_days: float = 90.0
     gate_min_trades: int = 30
@@ -371,6 +372,10 @@ class LiquidityMagnet(LiquiditySweep):
         return "buy"
 
 
+# Opt-in paper profile Nicole chose on 2026-10-02: more simultaneous positions only.
+# Defaults (Config) stay at the ELE-39 limits; changing those is Nicole's call.
+AGGRESSIVE = {"max_positions": 10, "profile": "aggressive"}
+
 STRATEGIES = {cls.name: cls for cls in (EmaCross, ZScoreReversion, TrendBreakout, LiquiditySweep, LiquidityMagnet)}
 
 
@@ -500,6 +505,8 @@ class PaperBroker:
         eq = self.equity()
         return {
             "paper_only": PAPER_ONLY,
+            "risk_profile": self.cfg.profile,
+            "max_positions": self.cfg.max_positions,
             "starting_cash": self.cfg.starting_cash,
             "equity": round(eq, 2),
             "return_pct": round((eq / self.cfg.starting_cash - 1) * 100, 3),
@@ -640,6 +647,8 @@ def main():
     ap.add_argument("--interval", type=float, default=None,
                     help="seconds between live polls (default 1; 5 for --jupiter to stay under its free rate limit)")
     ap.add_argument("--ticks", type=int, default=None, help="stop after N polls (live) or N steps (synthetic)")
+    ap.add_argument("--aggressive", action="store_true",
+                    help="opt-in paper profile: up to 10 open positions instead of 5; every other ELE-39 limit unchanged")
     ap.add_argument("--fee", type=float, default=Config.taker_fee)
     ap.add_argument("--dex-fee", type=float, default=Config.dex_fee,
                     help="cost per swap for JUP: products (default: network fee only; add the pool fee for candle replays)")
@@ -653,7 +662,8 @@ def main():
         products = ["JUP:SOL"]
     out = Path(args.out or f"paper_runs/{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}")
     out.mkdir(parents=True, exist_ok=True)
-    broker = PaperBroker(Config(taker_fee=args.fee, dex_fee=args.dex_fee, gate_min_days=args.gate_min_days),
+    profile = AGGRESSIVE if args.aggressive else {}
+    broker = PaperBroker(Config(taker_fee=args.fee, dex_fee=args.dex_fee, gate_min_days=args.gate_min_days, **profile),
                          ledger_path=out / "ledger.jsonl")
     tick_seconds = args.granularity if args.history else 60 if args.dex_history else args.interval
     bar_ticks = args.bar_ticks or max(1, round(3600 / tick_seconds))

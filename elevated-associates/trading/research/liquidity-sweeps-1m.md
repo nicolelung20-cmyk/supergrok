@@ -100,6 +100,10 @@ The sweep trades the *reversal* after liquidity is taken. The magnet trades the 
 
 Two magnet variants (`magnet`, `magnet-follow`) run in the same round-2 replay as the sweep variants.
 
+### Aggressive profile (opt-in, Nicole's choice 2026-10-02)
+
+`--aggressive` raises only the open-position cap from 5 to 10. Position size (5%), stop (2%), take-profit (4%) and the 3% daily halt stay at the ELE-39 limits, and the defaults are unchanged. The engine holds one position per coin per strategy, so the cap only matters with more than 5 coins: the `follow-aggressive` and `magnet-aggressive` variants trade 12 Coinbase coins (adding ADA, LTC, DOT, BCH, UNI). More open trades also means more fees and more correlated losses on market-wide drops, so compare drawdown, not just return.
+
 ## Decentralized: Solana DEX replay
 
 The same strategies also replay on **one-minute candles from Solana DEX pools**, built from on-chain swaps and published free by GeckoTerminal. Each token uses its highest-volume pool.
