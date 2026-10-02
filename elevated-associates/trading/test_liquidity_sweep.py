@@ -68,6 +68,24 @@ class LiquiditySweepTest(unittest.TestCase):
         sig = self.signals(s, flat(10) + [candle(99.8, 100.0, 99.4)] + hold)
         self.assertEqual(sig[-4:], ["buy", None, None, "sell"])
 
+    def test_stop_buffer_survives_a_retest_of_the_wick(self):
+        # bars range 1.0 wide; buffer 0.5 puts the stop at 99.4 - 0.5 = 98.9
+        retest = candle(99.6, 99.9, 99.3)  # dips below the wick (99.4) but not the buffered stop
+        plain = self.signals(self.strat(min_rr=0.5), flat(10) + [candle(99.8, 100.0, 99.4), retest])
+        buffered = self.signals(self.strat(min_rr=0.5, stop_buffer=0.5),
+                                flat(10) + [candle(99.8, 100.0, 99.4), retest])
+        self.assertEqual(plain[-2:], ["buy", "sell"])
+        self.assertEqual(buffered[-2:], ["buy", None])
+
+    def test_trail_holds_past_target_and_exits_on_trailed_stop(self):
+        s = self.strat(trail=3, max_hold=50)
+        run_up = [candle(100.6 + i, 101.0 + i, 100.2 + i, ts=30 + i) for i in range(5)]  # target 100.5 hit, keeps rising
+        drop = [candle(102.0, 102.5, 101.5, ts=40)]  # below the lowest low of the last 3 bars (102.2)
+        sig = self.signals(s, flat(10) + [candle(99.8, 100.0, 99.4)] + run_up + drop)
+        self.assertEqual(sig[10], "buy")
+        self.assertNotIn("sell", sig[11:16])  # no exit at the first target
+        self.assertEqual(sig[-1], "sell")
+
     def test_builds_bars_from_quotes_without_candles(self):
         s = self.strat(bar_ticks=3)
         quotes = []

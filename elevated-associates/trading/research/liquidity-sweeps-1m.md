@@ -10,11 +10,11 @@ Stop-loss orders cluster just below obvious lows (and above obvious highs). When
 
 | Step | Rule (defaults) |
 |---|---|
-| Liquidity pool | Lowest low and highest high of the prior `lookback` = 30 one-minute bars |
+| Liquidity pool | Lowest low and highest high of the prior `lookback` = 30 one-minute bars (`--sweep-lookback`) |
 | Sweep | Current bar's low is below the pool low **and** it closes back above the pool low |
 | Entry | Buy at the close of the sweep bar |
-| Invalidation | Sell when a later bar trades back down to the sweep's wick low |
-| Target | Sell when a later bar reaches the pool high (the opposite liquidity) |
+| Invalidation | Sell when a later bar trades back down to the stop: the wick low, minus `--sweep-stop-buffer` average bar ranges |
+| Target | Sell when a later bar reaches the pool high (the opposite liquidity); with `--sweep-trail N`, keep holding and trail the stop under the last N bars' lows instead |
 | Time stop | Sell after `max_hold` = 30 bars |
 | Cost filter | Skip unless target distance ≥ `edge_multiple` (2) × round-trip cost |
 | Shape filter | Skip unless target distance ≥ `min_rr` (1.5) × distance to the wick |
@@ -56,18 +56,37 @@ Cloud sessions can't reach Coinbase or Jupiter; run these on a Mac or let the wo
 
 ## Results
 
-Filled in from the `sweep_1m` workflow runs (fee-adjusted P&L, win rate, max drawdown, gate status).
+### Round 1: baseline (BTC, ETH, SOL), run 2026-10-02
 
-| Window | Fee | Trades | Win rate | Return | Max DD | Gate |
-|---|---|---|---|---|---|---|
-| 30 days | 0.6% | pending | | | | |
-| 30 days | 0.1% | pending | | | | |
-| 90 days | 0.6% | pending | | | | |
-| 90 days | 0.1% | pending | | | | |
+| Window | Fee | Trades | Win rate | Return | Fees paid | Max DD | Gate |
+|---|---|---|---|---|---|---|---|
+| 30 days | 0.6% | 9 | 11.1% | −0.60% | $5.37 | 0.61% | not passed |
+| 30 days | 0.1% | 1,277 | 13.1% | −14.00% | $118.66 | 14.01% | not passed |
+| 90 days | 0.6% | pending | | | | | |
+| 90 days | 0.1% | pending | | | | | |
 
-## Next ideas (one at a time)
+What it says:
 
-1. Mirror for shorts is not possible on spot; instead test the same rules on the sell side as an *exit* signal for longs.
-2. Require the sweep to happen at a higher-timeframe level (for example the prior day's low) instead of any 30-bar low.
-3. Add a volume condition: real stop runs print above-average volume on the sweep bar.
-4. Vary `lookback` (15, 30, 60) and keep only settings that hold up in both windows.
+- **At Coinbase's fee the cost filter does its job.** Only 9 setups qualified in 30 days, so losses stayed small, but there were too few trades to judge.
+- **At the low fee it trades constantly and loses.** Before fees the 1,277 trades were still slightly negative (about −$21), so there is no raw edge yet; fees then made it −14%.
+- **The stop is the problem.** A 13% win rate means price almost always comes back to the wick. With the stop exactly at the wick, ordinary one-minute noise takes it out before the move to the opposite pool.
+
+### Round 2: follow the liquidity (running)
+
+Four variants on seven liquid coins (BTC, ETH, SOL, XRP, DOGE, AVAX, LINK), 30 and 90 days, both fees:
+
+| Variant | Change | Why |
+|---|---|---|
+| baseline | as round 1 | control |
+| buffer | stop 0.5 average bar ranges below the wick | survive retests of the wick |
+| big-pools | 4-hour pools (240 bars), buffered stop | bigger targets, fewer but stronger levels |
+| follow | big pools, then trail the stop under the last 15 bars' lows after the target | let winners run to the next pool |
+
+More coins means more setups ("more trades"); the pool size and trailing aim at larger gains per trade. The broker's 4% take-profit and 2% stop (ELE-39) still cap every trade; changing those is Nicole's call.
+
+## Next ideas (one at a time, after round 2)
+
+1. Keep only a variant that holds up in **both** the 30-day and 90-day windows at the low fee.
+2. Volume filter: real stop runs print above-average volume on the sweep bar.
+3. Prior-day high/low as the pool instead of a rolling window.
+4. Forward paper test on the Jupiter feed for the survivor.

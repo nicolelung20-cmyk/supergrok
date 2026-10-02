@@ -211,16 +211,24 @@ class LiquiditySweep(Strategy):
     highest high of the lookback (the opposite pool of liquidity), or after `max_hold` bars.
 
     Long only (spot). Setups are skipped unless the target is at least `edge_multiple` round-trip
-    costs away and at least `min_rr` times the distance to the wick, so fees cannot eat the edge.
+    costs away and at least `min_rr` times the distance to the stop, so fees cannot eat the edge.
     Ticks that carry candle high/low are one bar each; plain quotes are grouped `bar_ticks` at a time.
+
+    Optional (off by default, so the baseline stays comparable):
+      stop_buffer: place the stop this many average bar ranges below the wick, so noise does not
+                   take it out.
+      trail:       on reaching the target, keep holding and trail the stop under the lowest low of
+                   the last `trail` bars (follow price to the next pool); `max_hold` then counts
+                   from the target, not the entry.
     """
     name = "liquidity_sweep"
 
     def __init__(self, bar_ticks=60, lookback=30, max_hold=30, edge_multiple=2.0,
-                 round_trip_cost=0.0125, min_rr=1.5):
+                 round_trip_cost=0.0125, min_rr=1.5, stop_buffer=0.0, trail=0):
         super().__init__()
         self.bar_ticks, self.lookback, self.max_hold = bar_ticks, lookback, max_hold
         self.edge_multiple, self.round_trip_cost, self.min_rr = edge_multiple, round_trip_cost, min_rr
+        self.stop_buffer, self.trail = stop_buffer, trail
         self.state = {}
 
     def _bar(self, st, tick):
@@ -248,7 +256,16 @@ class LiquiditySweep(Strategy):
         trade = st["trade"]
         if trade is not None:
             trade["held"] += 1
-            if low <= trade["stop"] or high >= trade["target"] or trade["held"] >= self.max_hold:
+            if low <= trade["stop"] or trade["held"] >= self.max_hold:
+                st["trade"] = None
+                return "sell"
+            if self.trail and len(bars) >= self.trail:
+                if high >= trade["target"] and not trade["trailing"]:
+                    trade["trailing"], trade["held"] = True, 0
+                if trade["trailing"]:
+                    trade["stop"] = max(trade["stop"], min(b[1] for b in list(st["bars"])[-self.trail:]))
+                return None
+            if high >= trade["target"]:
                 st["trade"] = None
                 return "sell"
             return None
@@ -258,10 +275,12 @@ class LiquiditySweep(Strategy):
         pool_high = max(b[0] for b in bars)
         if not (low < pool_low < close):
             return None
-        reward, risk = (pool_high - close) / close, (close - low) / close
+        avg_range = sum(b[0] - b[1] for b in bars) / len(bars)
+        stop = low - self.stop_buffer * avg_range
+        reward, risk = (pool_high - close) / close, (close - stop) / close
         if reward < self.edge_multiple * self.round_trip_cost or risk <= 0 or reward < self.min_rr * risk:
             return None
-        st["trade"] = {"stop": low, "target": pool_high, "held": 0}
+        st["trade"] = {"stop": stop, "target": pool_high, "held": 0, "trailing": False}
         return "buy"
 
 
@@ -520,6 +539,12 @@ def main():
     ap.add_argument("--gate-min-days", type=float, default=Config.gate_min_days,
                     help="days of paper data the gate requires (measured from tick timestamps)")
     ap.add_argument("--products", default="BTC-USD,ETH-USD,SOL-USD")
+    ap.add_argument("--sweep-lookback", type=int, default=30, help="liquidity_sweep: bars in the liquidity pool")
+    ap.add_argument("--sweep-max-hold", type=int, default=30, help="liquidity_sweep: bars before a time exit")
+    ap.add_argument("--sweep-stop-buffer", type=float, default=0.0,
+                    help="liquidity_sweep: stop this many average bar ranges below the wick")
+    ap.add_argument("--sweep-trail", type=int, default=0,
+                    help="liquidity_sweep: after the target, trail the stop under the last N bars' lows (0 = off)")
     ap.add_argument("--strategies", default=",".join(STRATEGIES))
     ap.add_argument("--interval", type=float, default=None,
                     help="seconds between live polls (default 1; 5 for --jupiter to stay under its free rate limit)")
@@ -547,7 +572,9 @@ def main():
         if s == "trend_breakout":
             strategies.append(STRATEGIES[s](bar_ticks=bar_ticks))
         elif s == "liquidity_sweep":
-            strategies.append(STRATEGIES[s](bar_ticks=minute_ticks, round_trip_cost=round_trip))
+            strategies.append(STRATEGIES[s](
+                bar_ticks=minute_ticks, round_trip_cost=round_trip, lookback=args.sweep_lookback,
+                max_hold=args.sweep_max_hold, stop_buffer=args.sweep_stop_buffer, trail=args.sweep_trail))
         else:
             strategies.append(STRATEGIES[s]())
 
