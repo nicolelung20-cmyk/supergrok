@@ -95,3 +95,51 @@ def jupiter_feed(products, notional_usd=50.0, interval=5.0, max_ticks=None, slip
         n += 1
         if max_ticks is None or n < max_ticks:
             sleep(max(0.0, interval - (now() - started)))
+
+
+# ---------------------------------------------------------------- DEX history (GeckoTerminal)
+
+GECKO = "https://api.geckoterminal.com/api/v2"
+GECKO_TOKEN_POOLS = GECKO + "/networks/solana/tokens/{}/pools?page=1"
+GECKO_OHLCV = GECKO + "/networks/solana/pools/{}/ohlcv/minute?aggregate={}&limit=1000&currency=usd&token={}"
+
+
+def top_pool(mint, fetch=_get_json):
+    """Address of the highest-volume Solana pool for `mint` (GeckoTerminal lists pools by volume)."""
+    pools = fetch(GECKO_TOKEN_POOLS.format(mint)).get("data") or []
+    if not pools:
+        raise ValueError(f"no DEX pools found for {mint}")
+    return pools[0]["attributes"]["address"]
+
+
+def dex_history_feed(products, days, aggregate=1, end=None, fetch=_get_json, pause=2.1, sleep=time.sleep):
+    """Replay `days` of one-minute DEX candles (from on-chain swaps) for each `JUP:` product.
+
+    Uses each token's highest-volume Solana pool on GeckoTerminal. Candles are
+    [time, open, high, low, close, volume], newest first, at most 1000 per request; the free
+    API allows about 30 requests a minute, hence `pause`. Each tick is the candle's close with
+    its high and low; bid equals ask, so pool fees must come from Config.dex_fee.
+    """
+    end = int(end if end is not None else time.time())
+    start = end - int(days * 86_400)
+    rows = []
+    for product in products:
+        name, mint, _ = resolve(product)
+        pool = top_pool(mint, fetch)
+        before, seen = end, set()
+        while before > start:
+            url = GECKO_OHLCV.format(pool, aggregate, mint) + f"&before_timestamp={before}"
+            candles = fetch(url).get("data", {}).get("attributes", {}).get("ohlcv_list") or []
+            if pause:
+                sleep(pause)
+            older = [c for c in candles if int(c[0]) < before]
+            if not older:
+                break  # no more history for this pool
+            for c in older:
+                ts = int(c[0])
+                if start <= ts < end and ts not in seen:
+                    seen.add(ts)
+                    rows.append((ts, name, float(c[4]), float(c[2]), float(c[3])))
+            before = min(int(c[0]) for c in older)
+    for ts, name, close, high, low in sorted(rows):
+        yield Tick(float(ts), name, close, close, high, low)

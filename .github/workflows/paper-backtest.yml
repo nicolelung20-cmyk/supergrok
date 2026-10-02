@@ -18,6 +18,12 @@ on:
       sweep_products:
         description: Products for the one-minute liquidity sweep replay
         default: BTC-USD,ETH-USD,SOL-USD,XRP-USD,DOGE-USD,AVAX-USD,LINK-USD
+      only:
+        description: Run only one job (backtest, sweep_1m or dex_1m); empty runs all
+        default: ""
+      dex_products:
+        description: Solana DEX tokens for the one-minute DEX replay (JUP:<symbol> or JUP:<mint>@<decimals>)
+        default: JUP:SOL,JUP:JUP,JUP:BONK,JUP:WIF
   push:
     branches: ["claude/paper-backtest**"]
     paths: [".github/workflows/paper-backtest.yml"]
@@ -27,6 +33,7 @@ permissions:
 
 jobs:
   backtest:
+    if: ${{ !inputs.only || inputs.only == 'backtest' }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
     strategy:
@@ -64,6 +71,7 @@ jobs:
           path: elevated-associates/trading/paper_runs/ci
 
   sweep_1m:
+    if: ${{ !inputs.only || inputs.only == 'sweep_1m' }}
     # Liquidity sweeps on one-minute candles. Replay compresses weeks of minutes into a few minutes.
     # fee 0.006 = Coinbase taker; fee 0.001 = what-if for low-cost venues (e.g. a Solana DEX).
     runs-on: ubuntu-latest
@@ -124,4 +132,56 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: paper-backtest-sweep-1m-${{ matrix.variant }}-${{ matrix.days }}d-fee${{ matrix.fee }}
+          path: elevated-associates/trading/paper_runs/ci
+
+  dex_1m:
+    if: ${{ !inputs.only || inputs.only == 'dex_1m' }}
+    # Decentralized: one-minute candles from Solana DEX pools (GeckoTerminal, built from on-chain swaps).
+    # --dex-fee 0.003 charges each swap a 0.25% pool fee plus network fee and margin.
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        days: ["30", "90"]
+        variant: [baseline, follow, magnet, magnet-follow]
+        include:
+          - variant: baseline
+            flags: "--strategies liquidity_sweep"
+          - variant: follow
+            flags: "--strategies liquidity_sweep --sweep-lookback 240 --sweep-max-hold 240 --sweep-stop-buffer 0.5 --sweep-trail 15"
+          - variant: magnet
+            flags: "--strategies liquidity_magnet --sweep-stop-buffer 0.5"
+          - variant: magnet-follow
+            flags: "--strategies liquidity_magnet --sweep-stop-buffer 0.5 --sweep-trail 15"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Replay one-minute Solana DEX candles
+        working-directory: elevated-associates/trading
+        env:
+          DAYS: ${{ matrix.days }}
+          VARIANT: ${{ matrix.variant }}
+          FLAGS: ${{ matrix.flags }}
+          PRODUCTS: ${{ inputs.dex_products || 'JUP:SOL,JUP:JUP,JUP:BONK,JUP:WIF' }}
+        run: |
+          # shellcheck disable=SC2086  # FLAGS is a list of options
+          python paperbot.py --dex-history "$DAYS" --dex-fee 0.003 --products "$PRODUCTS" $FLAGS --out paper_runs/ci
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          s = json.load(open("paper_runs/ci/summary.json"))
+          g = s["gate"]["checks"]
+          print(f"### DEX {os.environ['VARIANT']} · 1m · {os.environ['DAYS']} days · {os.environ['PRODUCTS']}")
+          print(f"trades {s['closed_trades']} · win {s['win_rate_pct']}% · expectancy {s['expectancy']} · "
+                f"max DD {s['max_drawdown_pct']}% · return {s['return_pct']}% · fees {s['fees_paid']} · "
+                f"history {s['gate']['days_running']} days")
+          print(f"gate: {'PASS' if all(g.values()) else 'not passed'} {g}")
+          PY
+      - uses: actions/upload-artifact@v4
+        with:
+          name: paper-backtest-dex-1m-${{ matrix.variant }}-${{ matrix.days }}d
           path: elevated-associates/trading/paper_runs/ci

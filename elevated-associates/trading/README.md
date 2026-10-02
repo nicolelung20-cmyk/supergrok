@@ -33,6 +33,8 @@ Prices come from Jupiter's free public quote API (`lite-api.jup.ag/swap/v1/quote
 
 `jupiter_feed.py` only reads quotes. It has no wallet, never builds or sends a transaction, and reads no keys; a unit test fails if swap, signing or key code is ever added. Known tokens: SOL, JUP, BONK, WIF. Keep tokens × 2 ÷ interval under about 1 request a second (the free tier's limit). Jupiter has no price history, so DEX strategies can only be scored by running forward; `--history` backtests stay on Coinbase. Cloud sessions can't reach Jupiter; run it on your Mac or a GitHub Actions runner.
 
+To replay past DEX prices, `--dex-history DAYS` uses free one-minute candles from Solana DEX pools (GeckoTerminal, built from on-chain swaps). Pass `--dex-fee 0.003` so each swap pays a typical pool fee; candles have no spread.
+
 ## Deploy: run the paper bot around the clock
 
 Run it on a machine you own (your Mac is free). One-time setup:

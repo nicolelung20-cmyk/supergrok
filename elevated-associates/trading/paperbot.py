@@ -616,6 +616,8 @@ def main():
     src.add_argument("--live", action="store_true", help="poll Coinbase public tickers")
     src.add_argument("--synthetic", action="store_true", help="offline random walk")
     src.add_argument("--replay", metavar="CSV", help="replay ts,product,bid,ask rows")
+    src.add_argument("--dex-history", type=float, metavar="DAYS",
+                     help="replay DAYS of one-minute Solana DEX candles (GeckoTerminal) for JUP: products")
     src.add_argument("--jupiter", action="store_true",
                      help="poll Jupiter (Solana DEX) quotes; products like JUP:SOL, JUP:JUP, JUP:<mint>@<decimals>")
     src.add_argument("--history", type=float, metavar="DAYS", help="replay DAYS of public Coinbase candles")
@@ -639,19 +641,21 @@ def main():
                     help="seconds between live polls (default 1; 5 for --jupiter to stay under its free rate limit)")
     ap.add_argument("--ticks", type=int, default=None, help="stop after N polls (live) or N steps (synthetic)")
     ap.add_argument("--fee", type=float, default=Config.taker_fee)
+    ap.add_argument("--dex-fee", type=float, default=Config.dex_fee,
+                    help="cost per swap for JUP: products (default: network fee only; add the pool fee for candle replays)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
     products = [p.strip() for p in args.products.split(",") if p.strip()]
     if args.interval is None:
         args.interval = 5.0 if args.jupiter else 1.0
-    if args.jupiter and args.products == ap.get_default("products"):
+    if (args.jupiter or args.dex_history) and args.products == ap.get_default("products"):
         products = ["JUP:SOL"]
     out = Path(args.out or f"paper_runs/{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}")
     out.mkdir(parents=True, exist_ok=True)
-    broker = PaperBroker(Config(taker_fee=args.fee, gate_min_days=args.gate_min_days),
+    broker = PaperBroker(Config(taker_fee=args.fee, dex_fee=args.dex_fee, gate_min_days=args.gate_min_days),
                          ledger_path=out / "ledger.jsonl")
-    tick_seconds = args.granularity if args.history else args.interval
+    tick_seconds = args.granularity if args.history else 60 if args.dex_history else args.interval
     bar_ticks = args.bar_ticks or max(1, round(3600 / tick_seconds))
     cfg = broker.cfg
     round_trip = 2 * (cfg.fee(products[0]) + cfg.slippage_bps / 10_000)
@@ -675,6 +679,9 @@ def main():
     elif args.history:
         feed = coinbase_history_feed(products, args.history, args.granularity,
                                      pause=0.15 if args.granularity < 900 else 0.0)
+    elif args.dex_history:
+        from jupiter_feed import dex_history_feed
+        feed = dex_history_feed(products, args.dex_history)
     elif args.jupiter:
         from jupiter_feed import jupiter_feed  # imported here: jupiter_feed imports Tick from this module
         notional = broker.cfg.starting_cash * broker.cfg.risk_per_trade

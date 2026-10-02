@@ -100,6 +100,21 @@ The sweep trades the *reversal* after liquidity is taken. The magnet trades the 
 
 Two magnet variants (`magnet`, `magnet-follow`) run in the same round-2 replay as the sweep variants.
 
+## Decentralized: Solana DEX replay
+
+The same strategies also replay on **one-minute candles from Solana DEX pools**, built from on-chain swaps and published free by GeckoTerminal. Each token uses its highest-volume pool.
+
+```bash
+python3 paperbot.py --dex-history 30 --dex-fee 0.003 --products JUP:SOL,JUP:JUP,JUP:BONK,JUP:WIF \
+  --strategies liquidity_magnet --sweep-stop-buffer 0.5
+```
+
+- **Costs.** Candles carry only prices, not the spread, so each swap is charged `--dex-fee` 0.3% (a typical 0.25% pool fee plus network fee and margin). Live paper runs on the Jupiter feed use real quotes instead, where the pool fee is already in the price.
+- **History depth.** GeckoTerminal's free minute history may be shorter than 90 days for some pools; the job summary prints the days actually replayed.
+- **Rate limit.** The free API allows about 30 requests a minute, so each page waits 2.1 s (about 6 minutes for 30 days of four tokens).
+
+The `dex_1m` job in `paper-backtest.yml` runs baseline, follow, magnet and magnet-follow on SOL, JUP, BONK and WIF for 30 and 90 days.
+
 ## Next ideas (one at a time, after round 2)
 
 1. Keep only a variant that holds up in **both** the 30-day and 90-day windows at the low fee.

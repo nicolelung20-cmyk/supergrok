@@ -94,3 +94,44 @@ class SafetyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FakeGecko:
+    """GeckoTerminal-shaped answers: one pool list, minute candles newest first, 1000 a page."""
+
+    def __init__(self, first_ts, last_ts):
+        self.first_ts, self.last_ts, self.urls = first_ts, last_ts, []
+
+    def __call__(self, url):
+        self.urls.append(url)
+        if "/tokens/" in url:
+            return {"data": [{"attributes": {"address": "PoolAAA"}}, {"attributes": {"address": "PoolBBB"}}]}
+        before = int(parse_qs(urlparse(url).query)["before_timestamp"][0])
+        newest = min(before - 60, self.last_ts) // 60 * 60
+        rows = [[t, 100.0, 101.0 + t % 7, 99.0, 100.5, 5.0]
+                for t in range(newest, max(self.first_ts, newest - 1000 * 60) - 1, -60)]
+        return {"data": {"attributes": {"ohlcv_list": rows}}}
+
+
+class DexHistoryTest(unittest.TestCase):
+    def test_pages_minute_candles_from_top_pool_in_time_order(self):
+        end = 1_700_000_000 // 60 * 60
+        fake = FakeGecko(first_ts=end - 5 * 86_400, last_ts=end)
+        ticks = list(jupiter_feed.dex_history_feed(["JUP:SOL"], 2, end=end, fetch=fake, pause=0))
+        self.assertTrue(all("/pools/PoolAAA/ohlcv/minute" in u for u in fake.urls[1:]))
+        self.assertTrue(any(f"token={SOL_MINT}" in u for u in fake.urls[1:]))
+        self.assertEqual(len(ticks), 2 * 1440)  # two days of minutes, no duplicates at page edges
+        self.assertEqual([t.ts for t in ticks], sorted(t.ts for t in ticks))
+        t = ticks[0]
+        self.assertEqual((t.product, t.bid, t.ask, t.low), ("JUP:SOL", 100.5, 100.5, 99.0))
+        self.assertGreater(t.high, t.low)
+
+    def test_stops_when_pool_history_runs_out(self):
+        end = 1_700_000_000 // 60 * 60
+        fake = FakeGecko(first_ts=end - 3_600, last_ts=end)  # only one hour of history
+        ticks = list(jupiter_feed.dex_history_feed(["JUP:SOL"], 30, end=end, fetch=fake, pause=0))
+        self.assertEqual(len(ticks), 60)
+
+    def test_replay_charges_the_dex_fee(self):
+        cfg = Config(dex_fee=0.003)
+        self.assertEqual(cfg.fee("JUP:SOL"), 0.003)
