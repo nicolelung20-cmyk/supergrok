@@ -182,3 +182,26 @@ class HistoryFeedTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class PatientGetTest(unittest.TestCase):
+    def test_retries_timeouts_then_succeeds(self):
+        calls, waits = [], []
+
+        def get(url):
+            calls.append(url)
+            if len(calls) < 3:
+                raise TimeoutError("The read operation timed out")
+            return [1]
+
+        self.assertEqual(paperbot.patient_get_json("u", base_wait=1, sleep=waits.append, get=get), [1])
+        self.assertEqual(waits, [1, 2])
+
+    def test_client_errors_raise_at_once(self):
+        import urllib.error
+
+        def get(url):
+            raise urllib.error.HTTPError("u", 404, "x", {}, None)
+
+        with self.assertRaises(urllib.error.HTTPError):
+            paperbot.patient_get_json("u", sleep=lambda s: self.fail("should not wait"), get=get)

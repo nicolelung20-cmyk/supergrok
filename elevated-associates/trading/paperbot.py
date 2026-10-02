@@ -652,7 +652,25 @@ def _get_json(url):
         return json.load(r)
 
 
-def coinbase_history_feed(products, days, granularity=3600, end=None, fetch=_get_json, pause=0.0):
+def patient_get_json(url, retries=5, base_wait=2.0, sleep=time.sleep, get=_get_json):
+    """GET JSON, retrying timeouts, dropped connections, 429s and 5xx errors with backoff.
+
+    Long history downloads make over a thousand requests, so one slow reply must not end the run.
+    """
+    import urllib.error
+    for attempt in range(retries + 1):
+        try:
+            return get(url)
+        except urllib.error.HTTPError as e:
+            if (e.code != 429 and e.code < 500) or attempt == retries:
+                raise
+        except (TimeoutError, ConnectionError, urllib.error.URLError):
+            if attempt == retries:
+                raise
+        sleep(base_wait * 2 ** attempt)
+
+
+def coinbase_history_feed(products, days, granularity=3600, end=None, fetch=patient_get_json, pause=0.0):
     """Replay `days` of public Coinbase candles as ticks at each candle's close.
 
     The gate measures time from tick timestamps, so 90 days of history replays in seconds.
