@@ -1,0 +1,4 @@
+# Solana wallets for the moon bot (paper copy-trading), one address per line.
+# Pick wallets with a public, consistent track record (for example from Solscan,
+# Birdeye or GMGN leaderboards) and check their recent history yourself first.
+# Lines starting with # are ignored. This file ships empty on purpose.

@@ -21,6 +21,22 @@ It needs only Python 3.9+ and no packages. Each run writes `paper_runs/<time>/le
 
 **Where to run it around the clock (all $0):** Nicole's Mac, with `caffeinate -i python3 alpaca_paper.py`, or any always-on machine she owns. Claude's cloud sessions are temporary and their network policy currently blocks Alpaca and Coinbase, so they are for building and testing only.
 
+## Moon bot: paper copy-trading of Solana wallets
+
+`moonbot.py` follows wallets you choose and mirrors their token buys and sells into the paper broker at live Jupiter quotes.
+
+```bash
+python3 moonbot.py --wallets <addr1>,<addr2>          # or --wallets-file wallets.txt
+python3 moonbot.py --wallets-file wallets.txt --min-sol 1 --aggressive
+```
+
+- **Reads only.** It calls two public Solana methods (`getSignaturesForAddress`, `getTransaction`) and Jupiter quotes. It has no wallet and never signs or sends anything; a test fails if that changes.
+- **No chasing old moves.** History that existed when the bot started is skipped; only new trades are copied.
+- **What counts.** A buy is a transaction where the wallet's token balance rises while its SOL, wrapped SOL or stablecoins fall. Buys under `--min-sol` (default 0.5 SOL) are ignored.
+- **Exits.** The paper position closes when the copied wallet sells, or earlier at the ELE-39 stop (2%) or take-profit (4%). Memecoins move far more than 4%, so the take-profit caps big wins; changing it is Nicole's call.
+- **Where to run it.** Your Mac, or the "Moon bot (paper)" GitHub workflow (Actions tab → Run workflow, paste wallet addresses), which runs up to 5.5 hours and posts a scorecard. The public Solana RPC is rate-limited, so keep it to a handful of wallets at a 15-second interval.
+- **Output.** `copied.jsonl` lists every wallet trade seen; `ledger.jsonl` and `summary.json` work like the other bots.
+
 ## Aggressive profile (opt-in)
 
 `--aggressive` allows up to 10 open positions instead of 5. Every other ELE-39 limit stays the same, and `summary.json` records `risk_profile` so results are never mixed up. It only has an effect with more than 5 products, since each strategy holds one position per product.
