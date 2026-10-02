@@ -148,12 +148,12 @@ Results (run 36961997983, 12 coins, max 10 open) against the same variant at the
 |---|---|---|---|---|---|---|---|---|---|
 | follow-aggressive | 30 d | 0.6% | 778 | 10.0% | −37.17% | $374.73 | +$2.82 | 37.22% | −19.09% |
 | follow-aggressive | 30 d | 0.1% | 2,525 | 14.2% | −23.02% | $221.41 | −$10.24 | 23.25% | −15.26% |
-| follow-aggressive | 90 d | 0.6% | running | | | | | | −31.68% |
+| follow-aggressive | 90 d | 0.6% | 1,521 | 10.7% | −58.81% | $612.52 | +$24.29 | 58.86% | −31.68% |
 | follow-aggressive | 90 d | 0.1% | 6,475 | 13.9% | −49.44% | $463.39 | −$31.89 | 49.61% | −34.45% |
 | magnet-aggressive | 30 d | 0.6% | 400 | 9.8% | −22.62% | $210.64 | −$15.52 | 22.64% | −8.71% |
 | magnet-aggressive | 30 d | 0.1% | 4,084 | 28.9% | −40.71% | $319.48 | −$87.38 | 40.77% | −21.54% |
 | magnet-aggressive | 90 d | 0.6% | 768 | 10.8% | −37.83% | $367.79 | −$10.53 | 37.85% | −14.96% |
-| magnet-aggressive | 90 d | 0.1% | running | | | | | | −45.17% |
+| magnet-aggressive | 90 d | 0.1% | 10,501 | 28.5% | −72.36% | $599.12 | −$124.43 | 72.39% | −45.17% |
 
 **Verdict: the aggressive profile roughly doubled trades and doubled losses.** With no edge per trade, more open positions only multiply fees: on $1,000, the 30-day follow variant at 0.6% went from −$191 to −$372. It is not worth using until a strategy is positive at the normal profile.
 
@@ -171,6 +171,18 @@ python3 paperbot.py --dex-history 30 --dex-fee 0.003 --products JUP:SOL,JUP:JUP,
 - **Rate limit.** The free API allows about 30 requests a minute, so each page waits 2.1 s (about 6 minutes for 30 days of four tokens).
 
 The `dex_1m` job in `paper-backtest.yml` runs baseline, follow, magnet and magnet-follow on SOL, JUP, BONK and WIF for 30 and 90 days.
+
+Results (run 36962894214, SOL/JUP/BONK/WIF, swap cost 0.3%, $1,000 each). The 90-day jobs run two at a time behind the rate limit and are still going:
+
+| Variant | Window | History replayed | Trades | Win rate | Return | Fees paid | Pre-fee P&L | Max DD |
+|---|---|---|---|---|---|---|---|---|
+| baseline | 30 d | 30.0 d | 1,198 | 12.1% | −33.32% | $295.20 | −$37.99 | 33.32% |
+| follow | 30 d | 30.0 d | 479 | 17.1% | −12.87% | $133.16 | +$4.44 | 13.04% |
+| magnet | 30 d | running | | | | | | |
+| magnet-follow | 30 d | running | | | | | | |
+| baseline / follow / magnet / magnet-follow | 90 d | queued | | | | | | |
+
+So far the DEX picture matches Coinbase. The 0.3% swap cost is low enough to let thousands of small setups through, and those setups are not an edge. `follow` was barely positive before fees (+$4.44) and paid $133 in fees.
 
 ## Next ideas (one at a time, after round 2)
 
