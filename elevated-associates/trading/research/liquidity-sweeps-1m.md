@@ -178,11 +178,11 @@ Results (run 36962894214, SOL/JUP/BONK/WIF, swap cost 0.3%, $1,000 each). The 90
 |---|---|---|---|---|---|---|---|---|
 | baseline | 30 d | 30.0 d | 1,198 | 12.1% | −33.32% | $295.20 | −$37.99 | 33.32% |
 | follow | 30 d | 30.0 d | 479 | 17.1% | −12.87% | $133.16 | +$4.44 | 13.04% |
-| magnet | 30 d | running | | | | | | |
-| magnet-follow | 30 d | running | | | | | | |
+| magnet | 30 d | 30.0 d | 612 | 21.7% | −21.77% | $160.90 | −$56.77 | 22.07% |
+| magnet-follow | 30 d | 30.0 d | 606 | 18.2% | −21.79% | $159.27 | −$58.64 | 22.10% |
 | baseline / follow / magnet / magnet-follow | 90 d | queued | | | | | | |
 
-So far the DEX picture matches Coinbase. The 0.3% swap cost is low enough to let thousands of small setups through, and those setups are not an edge. `follow` was barely positive before fees (+$4.44) and paid $133 in fees.
+So far the DEX picture matches Coinbase. The 0.3% swap cost is low enough to let thousands of small setups through, and those setups are not an edge. `follow` was barely positive before fees (+$4.44) and paid $133 in fees. Both magnets lost about $57 per $1,000 before fees on DEX too.
 
 ## Next ideas (one at a time, after round 2)
 
