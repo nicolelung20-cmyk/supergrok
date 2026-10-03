@@ -1,6 +1,7 @@
 """Edge cases of the ELE-39 risk policy that test_paperbot.py does not pin down."""
 import unittest
 
+import paperbot
 from paperbot import Config, PaperBroker, Tick
 
 DAY = 86_400.0
@@ -53,3 +54,16 @@ class RiskPolicyTest(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class AggressiveProfileTest(unittest.TestCase):
+    def test_aggressive_only_raises_open_positions(self):
+        base, aggr = Config(), Config(**paperbot.AGGRESSIVE)
+        self.assertEqual((base.max_positions, aggr.max_positions), (5, 10))
+        for field in ("risk_per_trade", "stop_loss", "take_profit", "daily_kill_switch", "taker_fee"):
+            self.assertEqual(getattr(base, field), getattr(aggr, field), field)
+
+    def test_summary_names_the_profile(self):
+        self.assertEqual(PaperBroker(Config()).summary()["risk_profile"], "ele-39")
+        s = PaperBroker(Config(**paperbot.AGGRESSIVE)).summary()
+        self.assertEqual((s["risk_profile"], s["max_positions"]), ("aggressive", 10))

@@ -1,0 +1,66 @@
+name: Moon bot (paper)
+
+# Paper copy-trading of Solana wallets Nicole chooses. Reads public Solana data and Jupiter
+# quotes only; moonbot.py has no wallet and never sends a transaction. No keys, no orders.
+
+on:
+  workflow_dispatch:
+    inputs:
+      wallets:
+        description: Comma-separated Solana wallet addresses to follow (or leave empty to use elevated-associates/trading/wallets.txt)
+        default: ""
+      hours:
+        description: How long to run (max 5.5)
+        default: "5.5"
+      min_sol:
+        description: Ignore wallet buys smaller than this many SOL
+        default: "0.5"
+      aggressive:
+        description: Use the opt-in aggressive profile (up to 10 open positions)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  moon:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Run the moon bot (paper)
+        working-directory: elevated-associates/trading
+        env:
+          WALLETS: ${{ inputs.wallets }}
+          HOURS: ${{ inputs.hours }}
+          MIN_SOL: ${{ inputs.min_sol }}
+          AGGRESSIVE: ${{ inputs.aggressive && '--aggressive' || '' }}
+        run: |
+          if [ -n "$WALLETS" ]; then SRC=(--wallets "$WALLETS"); else SRC=(--wallets-file wallets.txt); fi
+          SECS=$(python -c "import os; print(int(min(float(os.environ['HOURS']), 5.5) * 3600))")
+          # shellcheck disable=SC2086  # AGGRESSIVE is empty or one flag
+          timeout -s INT "$SECS" python moonbot.py "${SRC[@]}" --min-sol "$MIN_SOL" $AGGRESSIVE \
+            --out paper_runs/moon > run.log 2>&1 || true
+          tail -n 40 run.log
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json, os
+          s = json.load(open("paper_runs/moon/summary.json"))
+          log = "paper_runs/moon/copied.jsonl"
+          copied = sum(1 for _ in open(log)) if os.path.exists(log) else 0
+          print(f"### Moon bot (paper) · profile {s['risk_profile']}")
+          print(f"wallet trades seen {copied} · paper trades {s['closed_trades']} · open {s['open_positions']} · "
+                f"win {s['win_rate_pct']}% · return {s['return_pct']}% · fees {s['fees_paid']} · max DD {s['max_drawdown_pct']}%")
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: moon-paper
+          path: |
+            elevated-associates/trading/paper_runs/moon
+            elevated-associates/trading/run.log

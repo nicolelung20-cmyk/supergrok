@@ -10,6 +10,8 @@ Usage:
     python paperbot.py --synthetic --ticks 20000                   # offline random-walk run
     python paperbot.py --replay prices.csv                         # CSV rows: ts,product,bid,ask
     python paperbot.py --history 90 --strategies trend_breakout    # 90 days of hourly candles in seconds
+    python paperbot.py --history 30 --granularity 60 --strategies liquidity_sweep   # one-minute sweeps
+    python paperbot.py --jupiter --products JUP:SOL,JUP:JUP         # Solana DEX quotes (Jupiter), simulated swaps
 
 Outputs (in --out, default ./paper_runs/<timestamp>/):
     ledger.jsonl   every fill, stop and kill-switch event
@@ -45,6 +47,8 @@ class Tick:
     product: str
     bid: float
     ask: float
+    high: float = None   # candle high/low when the tick is a whole candle (history replay); None for quotes
+    low: float = None
 
     @property
     def mid(self):
@@ -56,6 +60,8 @@ class Config:
     starting_cash: float = 1000.0
     taker_fee: float = 0.006          # crypto taker fee; Coinbase Advanced entry tier is 0.60%
     stock_fee: float = 0.0            # US stocks/ETFs (commission-free brokers)
+    dex_fee: float = 0.0003           # Solana network + priority fee on a ~$50 swap; pool fees are already in Jupiter quotes
+    hl_fee: float = 0.00045           # Hyperliquid perp taker fee (base tier) for HL:<coin> copies
     slippage_bps: float = 2.0         # extra cost beyond the quoted bid/ask
     # Risk policy (Linear ELE-39): <=5% per position, 3% daily loss halt, <=5 positions, no leverage.
     risk_per_trade: float = 0.05      # fraction of equity allocated per position
@@ -63,13 +69,19 @@ class Config:
     take_profit: float = 0.04
     daily_kill_switch: float = 0.03   # pause new entries after -3% on the UTC day
     max_positions: int = 5
+    profile: str = "ele-39"           # which risk profile produced this run (shown in summary.json)
     # Paper-to-live gate (CHARTER.md section 2 + Linear ELE-40). Human steps are tracked separately.
     gate_min_days: float = 90.0
     gate_min_trades: int = 30
     gate_max_drawdown: float = 0.10
 
     def fee(self, product):
-        """Crypto pairs look like BTC-USD or BTC/USD; anything else is treated as a stock/ETF."""
+        """JUP:<token> is a Solana DEX swap; HL:<coin> a Hyperliquid copy; BTC-USD or BTC/USD a crypto pair;
+        anything else is a stock/ETF."""
+        if product.upper().startswith("JUP:"):
+            return self.dex_fee
+        if product.upper().startswith("HL:"):
+            return self.hl_fee
         return self.taker_fee if ("-" in product or "/" in product) else self.stock_fee
 
 
@@ -195,7 +207,270 @@ class TrendBreakout(Strategy):
         return None
 
 
-STRATEGIES = {cls.name: cls for cls in (EmaCross, ZScoreReversion, TrendBreakout)}
+class BarStrategy(Strategy):
+    """Helper for strategies on bars: candle ticks are one bar each; quotes are grouped `bar_ticks` at a time."""
+
+    def __init__(self, bar_ticks=60):
+        super().__init__()
+        self.bar_ticks = bar_ticks
+        self.bar_state = {}
+
+    def bar(self, tick):
+        """(high, low, close) when a bar completes, else None."""
+        if tick.high is not None and tick.low is not None:
+            return tick.high, tick.low, tick.mid
+        st = self.bar_state.setdefault(tick.product, {"n": 0, "hi": tick.mid, "lo": tick.mid})
+        st["n"] += 1
+        st["hi"], st["lo"] = max(st["hi"], tick.mid), min(st["lo"], tick.mid)
+        if st["n"] < self.bar_ticks:
+            return None
+        out = (st["hi"], st["lo"], tick.mid)
+        self.bar_state[tick.product] = {"n": 0, "hi": tick.mid, "lo": tick.mid}
+        return out
+
+
+class RsiReversion(BarStrategy):
+    """Buy when the `period`-bar RSI drops below `buy_below` (oversold); sell when it rises above `sell_above`."""
+    name = "rsi_reversion"
+
+    def __init__(self, period=14, buy_below=25, sell_above=55, bar_ticks=60):
+        super().__init__(bar_ticks)
+        self.period, self.buy_below, self.sell_above = period, buy_below, sell_above
+        self.state = {}
+
+    def signal(self, tick):
+        b = self.bar(tick)
+        if b is None:
+            return None
+        close = b[2]
+        st = self.state.setdefault(tick.product, {"prev": None, "gain": 0.0, "loss": 0.0, "n": 0, "long": False})
+        if st["prev"] is None:
+            st["prev"] = close
+            return None
+        change, st["prev"] = close - st["prev"], close
+        a = 1 / self.period  # Wilder's smoothing
+        st["gain"] += a * (max(change, 0) - st["gain"])
+        st["loss"] += a * (max(-change, 0) - st["loss"])
+        st["n"] += 1
+        if st["n"] < self.period:
+            return None
+        rsi = 100.0 if st["loss"] == 0 else 100 - 100 / (1 + st["gain"] / st["loss"])
+        if not st["long"] and rsi < self.buy_below:
+            st["long"] = True
+            return "buy"
+        if st["long"] and rsi > self.sell_above:
+            st["long"] = False
+            return "sell"
+        return None
+
+
+class MomentumBreakout(BarStrategy):
+    """Buy when the close is up more than `threshold` over `lookback` bars (strong momentum); sell when the
+    momentum fades below zero or after `max_hold` bars."""
+    name = "momentum"
+
+    def __init__(self, lookback=60, threshold=0.01, max_hold=120, bar_ticks=60):
+        super().__init__(bar_ticks)
+        self.lookback, self.threshold, self.max_hold = lookback, threshold, max_hold
+        self.state = {}
+
+    def signal(self, tick):
+        b = self.bar(tick)
+        if b is None:
+            return None
+        close = b[2]
+        st = self.state.setdefault(tick.product, {"closes": deque(maxlen=self.lookback + 1), "held": None})
+        st["closes"].append(close)
+        if len(st["closes"]) <= self.lookback:
+            return None
+        roc = close / st["closes"][0] - 1
+        if st["held"] is None:
+            if roc > self.threshold:
+                st["held"] = 0
+                return "buy"
+            return None
+        st["held"] += 1
+        if roc < 0 or st["held"] >= self.max_hold:
+            st["held"] = None
+            return "sell"
+        return None
+
+
+class LiquiditySweep(Strategy):
+    """Liquidity sweep reversal on short bars (built for one-minute candles).
+
+    A sweep is a bar whose low trades below the lowest low of the prior `lookback` bars (where
+    resting sell stops sit) and then closes back above that level. Enter long on the close of the
+    sweep bar. Exit when a later bar trades back below the sweep's wick (invalidated), reaches the
+    highest high of the lookback (the opposite pool of liquidity), or after `max_hold` bars.
+
+    Long only (spot). Setups are skipped unless the target is at least `edge_multiple` round-trip
+    costs away and at least `min_rr` times the distance to the stop, so fees cannot eat the edge.
+    Ticks that carry candle high/low are one bar each; plain quotes are grouped `bar_ticks` at a time.
+
+    Optional (off by default, so the baseline stays comparable):
+      stop_buffer: place the stop this many average bar ranges below the wick, so noise does not
+                   take it out.
+      trail:       on reaching the target, keep holding and trail the stop under the lowest low of
+                   the last `trail` bars (follow price to the next pool); `max_hold` then counts
+                   from the target, not the entry.
+    """
+    name = "liquidity_sweep"
+
+    def __init__(self, bar_ticks=60, lookback=30, max_hold=30, edge_multiple=2.0,
+                 round_trip_cost=0.0125, min_rr=1.5, stop_buffer=0.0, trail=0):
+        super().__init__()
+        self.bar_ticks, self.lookback, self.max_hold = bar_ticks, lookback, max_hold
+        self.edge_multiple, self.round_trip_cost, self.min_rr = edge_multiple, round_trip_cost, min_rr
+        self.stop_buffer, self.trail = stop_buffer, trail
+        self.state = {}
+
+    def _bar(self, st, tick):
+        """Return (high, low, close) when a bar completes, else None."""
+        if tick.high is not None and tick.low is not None:
+            return tick.high, tick.low, tick.mid
+        st["n"] += 1
+        st["hi"] = tick.mid if st["hi"] is None else max(st["hi"], tick.mid)
+        st["lo"] = tick.mid if st["lo"] is None else min(st["lo"], tick.mid)
+        if st["n"] < self.bar_ticks:
+            return None
+        bar = (st["hi"], st["lo"], tick.mid)
+        st["n"], st["hi"], st["lo"] = 0, None, None
+        return bar
+
+    def signal(self, tick):
+        st = self.state.setdefault(tick.product, {
+            "n": 0, "hi": None, "lo": None, "bars": deque(maxlen=self.lookback), "trade": None})
+        bar = self._bar(st, tick)
+        if bar is None:
+            return None
+        high, low, close = bar
+        bars = list(st["bars"])
+        st["bars"].append((high, low))
+        trade = st["trade"]
+        if trade is not None:
+            trade["held"] += 1
+            if low <= trade["stop"] or trade["held"] >= self.max_hold:
+                st["trade"] = None
+                return "sell"
+            if self.trail and len(bars) >= self.trail:
+                if high >= trade["target"] and not trade["trailing"]:
+                    trade["trailing"], trade["held"] = True, 0
+                if trade["trailing"]:
+                    trade["stop"] = max(trade["stop"], min(b[1] for b in list(st["bars"])[-self.trail:]))
+                return None
+            if high >= trade["target"]:
+                st["trade"] = None
+                return "sell"
+            return None
+        if len(bars) < self.lookback:
+            return None
+        pool_low = min(b[1] for b in bars)
+        pool_high = max(b[0] for b in bars)
+        if not (low < pool_low < close):
+            return None
+        avg_range = sum(b[0] - b[1] for b in bars) / len(bars)
+        stop = low - self.stop_buffer * avg_range
+        reward, risk = (pool_high - close) / close, (close - stop) / close
+        if reward < self.edge_multiple * self.round_trip_cost or risk <= 0 or reward < self.min_rr * risk:
+            return None
+        st["trade"] = {"stop": stop, "target": pool_high, "held": 0, "trailing": False}
+        return "buy"
+
+
+class LiquidityMagnet(LiquiditySweep):
+    """Ride price toward the nearest untouched pool of buy-side liquidity (long only, spot).
+
+    A magnet is a level above price where at least `touches` bar highs in the last `lookback`
+    bars line up within `tolerance` (equal highs, where buy stops rest) and no bar has traded
+    through it since. Enter when a bar closes above the previous bar's high (momentum toward
+    the magnet) while above the `trend`-bar EMA. Stop under the lowest low of the last
+    `stop_bars` bars (minus `stop_buffer` average ranges). Exit at the magnet, or with `trail`,
+    keep holding past it and trail the stop as in LiquiditySweep. Same cost and reward/risk
+    filters as LiquiditySweep.
+    """
+    name = "liquidity_magnet"
+
+    def __init__(self, touches=3, tolerance=0.001, stop_bars=5, trend=60, **kw):
+        kw.setdefault("lookback", 240)
+        kw.setdefault("max_hold", 120)
+        super().__init__(**kw)
+        self.touches, self.tolerance, self.stop_bars = touches, tolerance, stop_bars
+        self.trend_a = 2 / (trend + 1)
+
+    def magnet(self, bars, close, floor=None):
+        """Nearest untouched equal-highs level above `floor` (default `close`), or None.
+
+        Highs above the floor are scanned in ascending order; a cluster is `touches` or more highs
+        within `tolerance` of the lowest one. It is untouched if no later bar traded above it.
+        """
+        floor = close if floor is None else floor
+        above = sorted((b[0], i) for i, b in enumerate(bars) if b[0] > floor)
+        if len(above) < self.touches:
+            return None
+        suffix_max = [0.0] * (len(bars) + 1)
+        for i in range(len(bars) - 1, -1, -1):
+            suffix_max[i] = max(bars[i][0], suffix_max[i + 1])
+        end = 0
+        for start in range(len(above)):
+            band = above[start][0] * self.tolerance
+            end = max(end, start)
+            while end + 1 < len(above) and above[end + 1][0] - above[start][0] <= band:
+                end += 1
+            if end - start + 1 < self.touches:
+                continue
+            level = above[end][0]
+            first = min(i for _, i in above[start:end + 1])
+            if suffix_max[first] <= level + band:
+                return level
+        return None
+
+    def signal(self, tick):
+        st = self.state.setdefault(tick.product, {
+            "n": 0, "hi": None, "lo": None, "bars": deque(maxlen=self.lookback), "trade": None, "ema": None})
+        bar = self._bar(st, tick)
+        if bar is None:
+            return None
+        high, low, close = bar
+        bars = list(st["bars"])
+        st["bars"].append((high, low))
+        st["ema"] = close if st["ema"] is None else st["ema"] + self.trend_a * (close - st["ema"])
+        trade = st["trade"]
+        if trade is not None:
+            trade["held"] += 1
+            if low <= trade["stop"] or trade["held"] >= self.max_hold:
+                st["trade"] = None
+                return "sell"
+            if self.trail and len(bars) >= self.trail:
+                if high >= trade["target"] and not trade["trailing"]:
+                    trade["trailing"], trade["held"] = True, 0
+                if trade["trailing"]:
+                    trade["stop"] = max(trade["stop"], min(b[1] for b in list(st["bars"])[-self.trail:]))
+                return None
+            if high >= trade["target"]:
+                st["trade"] = None
+                return "sell"
+            return None
+        if len(bars) < self.lookback or close <= bars[-1][0] or close <= st["ema"]:
+            return None
+        target = self.magnet(bars, close, floor=close * (1 + self.edge_multiple * self.round_trip_cost))
+        if target is None:
+            return None
+        avg_range = sum(b[0] - b[1] for b in bars) / len(bars)
+        stop = min(b[1] for b in bars[-self.stop_bars:] + [(high, low)]) - self.stop_buffer * avg_range
+        reward, risk = (target - close) / close, (close - stop) / close
+        if reward < self.edge_multiple * self.round_trip_cost or risk <= 0 or reward < self.min_rr * risk:
+            return None
+        st["trade"] = {"stop": stop, "target": target, "held": 0, "trailing": False}
+        return "buy"
+
+
+# Opt-in paper profile Nicole chose on 2026-10-02: more simultaneous positions only.
+# Defaults (Config) stay at the ELE-39 limits; changing those is Nicole's call.
+AGGRESSIVE = {"max_positions": 10, "profile": "aggressive"}
+
+STRATEGIES = {cls.name: cls for cls in (EmaCross, ZScoreReversion, TrendBreakout, LiquiditySweep, LiquidityMagnet,
+                                         RsiReversion, MomentumBreakout)}
 
 
 # ---------------------------------------------------------------- broker
@@ -324,6 +599,8 @@ class PaperBroker:
         eq = self.equity()
         return {
             "paper_only": PAPER_ONLY,
+            "risk_profile": self.cfg.profile,
+            "max_positions": self.cfg.max_positions,
             "starting_cash": self.cfg.starting_cash,
             "equity": round(eq, 2),
             "return_pct": round((eq / self.cfg.starting_cash - 1) * 100, 3),
@@ -375,11 +652,31 @@ def _get_json(url):
         return json.load(r)
 
 
-def coinbase_history_feed(products, days, granularity=3600, end=None, fetch=_get_json):
+def patient_get_json(url, retries=5, base_wait=2.0, sleep=time.sleep, get=_get_json):
+    """GET JSON, retrying timeouts, dropped connections, 429s and 5xx errors with backoff.
+
+    Long history downloads make over a thousand requests, so one slow reply must not end the run.
+    """
+    import urllib.error
+    for attempt in range(retries + 1):
+        try:
+            return get(url)
+        except urllib.error.HTTPError as e:
+            if (e.code != 429 and e.code < 500) or attempt == retries:
+                raise
+        except (TimeoutError, ConnectionError, urllib.error.URLError):
+            if attempt == retries:
+                raise
+        sleep(base_wait * 2 ** attempt)
+
+
+def coinbase_history_feed(products, days, granularity=3600, end=None, fetch=patient_get_json, pause=0.0):
     """Replay `days` of public Coinbase candles as ticks at each candle's close.
 
     The gate measures time from tick timestamps, so 90 days of history replays in seconds.
     Coinbase returns at most 300 candles per request, newest first; rows are merged by time.
+    Candles are [time, low, high, open, close, volume]; each tick carries the candle's high and low.
+    `pause` seconds between requests keeps long one-minute pulls under the public rate limit.
     """
     end = int(end if end is not None else time.time()) // granularity * granularity
     start = end - int(days * 86_400) - granularity  # one extra candle so first-to-last spans `days`
@@ -394,18 +691,34 @@ def coinbase_history_feed(products, days, granularity=3600, end=None, fetch=_get
                 ts, close = int(c[0]), float(c[4])
                 if start <= ts < end and ts not in seen:
                     seen.add(ts)
-                    rows.append((ts, product, close))
+                    rows.append((ts, product, close, float(c[2]), float(c[1])))
             hi = lo
-    for ts, product, close in sorted(rows):
-        yield Tick(float(ts), product, close, close)
+            if pause:
+                time.sleep(pause)
+    for ts, product, close, high, low in sorted(rows):
+        yield Tick(float(ts), product, close, close, high, low)
 
 
 def replay_feed(path):
+    """Rows ts,product,bid,ask with optional high,low (as written by write_ticks)."""
     with open(path, newline="", encoding="utf-8") as f:
         for row in csv.reader(f):
             if not row or row[0] == "ts":
                 continue
-            yield Tick(float(row[0]), row[1], float(row[2]), float(row[3]))
+            hl = (float(row[4]), float(row[5])) if len(row) >= 6 and row[4] != "" else (None, None)
+            yield Tick(float(row[0]), row[1], float(row[2]), float(row[3]), *hl)
+
+
+def write_ticks(ticks, path):
+    """Save ticks so a download can be replayed many times (see tournament.py)."""
+    with open(path, "w", newline="", encoding="utf-8") as f:
+        w = csv.writer(f)
+        w.writerow(["ts", "product", "bid", "ask", "high", "low"])
+        n = 0
+        for t in ticks:
+            w.writerow([t.ts, t.product, t.bid, t.ask, "" if t.high is None else t.high, "" if t.low is None else t.low])
+            n += 1
+    return n
 
 
 # ---------------------------------------------------------------- runner
@@ -436,6 +749,10 @@ def main():
     src.add_argument("--live", action="store_true", help="poll Coinbase public tickers")
     src.add_argument("--synthetic", action="store_true", help="offline random walk")
     src.add_argument("--replay", metavar="CSV", help="replay ts,product,bid,ask rows")
+    src.add_argument("--dex-history", type=float, metavar="DAYS",
+                     help="replay DAYS of one-minute Solana DEX candles (GeckoTerminal) for JUP: products")
+    src.add_argument("--jupiter", action="store_true",
+                     help="poll Jupiter (Solana DEX) quotes; products like JUP:SOL, JUP:JUP, JUP:<mint>@<decimals>")
     src.add_argument("--history", type=float, metavar="DAYS", help="replay DAYS of public Coinbase candles")
     ap.add_argument("--granularity", type=int, default=3600, choices=(60, 300, 900, 3600, 21600, 86400),
                     help="candle seconds for --history")
@@ -444,29 +761,69 @@ def main():
     ap.add_argument("--gate-min-days", type=float, default=Config.gate_min_days,
                     help="days of paper data the gate requires (measured from tick timestamps)")
     ap.add_argument("--products", default="BTC-USD,ETH-USD,SOL-USD")
+    ap.add_argument("--sweep-lookback", type=int, default=None,
+                    help="liquidity_sweep/magnet: bars in the liquidity pool (default 30 sweep, 240 magnet)")
+    ap.add_argument("--sweep-max-hold", type=int, default=None,
+                    help="liquidity_sweep/magnet: bars before a time exit (default 30 sweep, 120 magnet)")
+    ap.add_argument("--sweep-stop-buffer", type=float, default=None,
+                    help="liquidity_sweep/magnet: stop this many average bar ranges below the stop level")
+    ap.add_argument("--sweep-trail", type=int, default=None,
+                    help="liquidity_sweep/magnet: after the target, trail the stop under the last N bars' lows")
     ap.add_argument("--strategies", default=",".join(STRATEGIES))
-    ap.add_argument("--interval", type=float, default=1.0, help="seconds between live polls")
+    ap.add_argument("--interval", type=float, default=None,
+                    help="seconds between live polls (default 1; 5 for --jupiter to stay under its free rate limit)")
     ap.add_argument("--ticks", type=int, default=None, help="stop after N polls (live) or N steps (synthetic)")
+    ap.add_argument("--aggressive", action="store_true",
+                    help="opt-in paper profile: up to 10 open positions instead of 5; every other ELE-39 limit unchanged")
     ap.add_argument("--fee", type=float, default=Config.taker_fee)
+    ap.add_argument("--dex-fee", type=float, default=Config.dex_fee,
+                    help="cost per swap for JUP: products (default: network fee only; add the pool fee for candle replays)")
     ap.add_argument("--out", default=None)
     args = ap.parse_args()
 
     products = [p.strip() for p in args.products.split(",") if p.strip()]
+    if args.interval is None:
+        args.interval = 5.0 if args.jupiter else 1.0
+    if (args.jupiter or args.dex_history) and args.products == ap.get_default("products"):
+        products = ["JUP:SOL"]
     out = Path(args.out or f"paper_runs/{datetime.now(timezone.utc):%Y%m%dT%H%M%SZ}")
     out.mkdir(parents=True, exist_ok=True)
-    broker = PaperBroker(Config(taker_fee=args.fee, gate_min_days=args.gate_min_days),
+    profile = AGGRESSIVE if args.aggressive else {}
+    broker = PaperBroker(Config(taker_fee=args.fee, dex_fee=args.dex_fee, gate_min_days=args.gate_min_days, **profile),
                          ledger_path=out / "ledger.jsonl")
-    tick_seconds = args.granularity if args.history else args.interval
+    tick_seconds = args.granularity if args.history else 60 if args.dex_history else args.interval
     bar_ticks = args.bar_ticks or max(1, round(3600 / tick_seconds))
-    strategies = [STRATEGIES[s.strip()](bar_ticks=bar_ticks) if s.strip() == "trend_breakout"
-                  else STRATEGIES[s.strip()]() for s in args.strategies.split(",")]
+    cfg = broker.cfg
+    round_trip = 2 * (cfg.fee(products[0]) + cfg.slippage_bps / 10_000)
+    minute_ticks = max(1, round(60 / tick_seconds))
+    strategies = []
+    for s in (s.strip() for s in args.strategies.split(",")):
+        if s == "trend_breakout":
+            strategies.append(STRATEGIES[s](bar_ticks=bar_ticks))
+        elif s in ("rsi_reversion", "momentum"):
+            strategies.append(STRATEGIES[s](bar_ticks=minute_ticks))
+        elif s in ("liquidity_sweep", "liquidity_magnet"):
+            opts = {"lookback": args.sweep_lookback, "max_hold": args.sweep_max_hold,
+                    "stop_buffer": args.sweep_stop_buffer, "trail": args.sweep_trail}
+            strategies.append(STRATEGIES[s](bar_ticks=minute_ticks, round_trip_cost=round_trip,
+                                            **{k: v for k, v in opts.items() if v is not None}))
+        else:
+            strategies.append(STRATEGIES[s]())
 
     if args.live:
         feed = coinbase_feed(products, args.interval, args.ticks)
     elif args.synthetic:
         feed = synthetic_feed(products, args.ticks or 20_000)
     elif args.history:
-        feed = coinbase_history_feed(products, args.history, args.granularity)
+        feed = coinbase_history_feed(products, args.history, args.granularity,
+                                     pause=0.15 if args.granularity < 900 else 0.0)
+    elif args.dex_history:
+        from jupiter_feed import dex_history_feed
+        feed = dex_history_feed(products, args.dex_history)
+    elif args.jupiter:
+        from jupiter_feed import jupiter_feed  # imported here: jupiter_feed imports Tick from this module
+        notional = broker.cfg.starting_cash * broker.cfg.risk_per_trade
+        feed = jupiter_feed(products, notional_usd=notional, interval=args.interval, max_ticks=args.ticks)
     else:
         feed = replay_feed(args.replay)
 

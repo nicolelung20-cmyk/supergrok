@@ -8,7 +8,7 @@ A second-by-second **paper** trading bot for Elevated Associates LLC. It polls f
 
 ```bash
 cd elevated-associates/trading
-python3 -m unittest discover -p "test_*.py"                    # 30 tests, no network needed
+python3 -m unittest discover -p "test_*.py"                    # 112 tests, no network needed
 python3 paperbot.py --live --products BTC-USD,ETH-USD,SOL-USD   # Coinbase prices, simulated fills
 python3 paperbot.py --synthetic --ticks 20000                   # offline sanity check
 python3 alpaca_paper.py --check                                 # verify Alpaca paper keys
@@ -20,6 +20,77 @@ It needs only Python 3.9+ and no packages. Each run writes `paper_runs/<time>/le
 **Kill-switch:** create a file named `STOP` in the run folder (`touch paper_runs/<run>/STOP`). The bot closes every position, including in Alpaca paper, logs a `halt` event, and exits.
 
 **Where to run it around the clock (all $0):** Nicole's Mac, with `caffeinate -i python3 alpaca_paper.py`, or any always-on machine she owns. Claude's cloud sessions are temporary and their network policy currently blocks Alpaca and Coinbase, so they are for building and testing only.
+
+## Strategy tournament: many strategies at once, judged out of sample
+
+`tournament.py` downloads price history once, then replays it through 44 candidates (every strategy family below, several settings each) in parallel on all CPU cores.
+
+```bash
+python3 tournament.py --history 30 --granularity 60 --fee 0.001 --products BTC-USD,ETH-USD,SOL-USD
+python3 tournament.py --dex-history 30 --dex-fee 0.003 --products JUP:SOL,JUP:BONK
+python3 tournament.py --replay paper_runs/<run>/ticks.csv      # reuse a download
+```
+
+- The first two-thirds of the history picks the best settings; the last third is the **out-of-sample test** those settings never saw. Candidates are ranked by their train score (return minus half the max drawdown, with at least 10 trades).
+- **Read the test columns.** With 44 candidates, some look good on the train part by luck. "Robust" marks candidates that made money in both parts; even then, one window is not proof.
+- Output: `leaderboard.md`, `leaderboard.json`, and `ticks.csv` (the download). The "Paper backtest" workflow's `tournament` job runs it on Coinbase 1-minute (30 days, at 0.6% and 0.1% fees), Coinbase hourly (365 days) and Solana DEX 1-minute (30 days).
+
+## Hyperliquid top traders: paper copy-trading
+
+`hl_copy.py` follows chosen Hyperliquid wallets and mirrors their **fresh long entries** into the paper broker. It exits when the trader starts closing, or earlier at the ELE-39 stop or take-profit.
+
+```bash
+python3 hl_copy.py --replay 30                  # what copying the default traders would have earned
+python3 hl_copy.py --replay 7 --interval 1m     # finer candles, shorter window
+python3 hl_copy.py --live --poll 30             # follow forward
+```
+
+- **Default traders** (in `TOP_TRADERS`) are 5 wallets chosen on 2026-10-02 from Coinversa's persistent winners:
+  - profitable in each of the last 3 months;
+  - their best month was no more than 55% of their 90-day profit, so one lucky month can't carry them;
+  - their 30-day trend is not declining;
+  - they don't trade like high-frequency bots, which a follower can't keep up with.
+  
+  Override the list with `--traders` or `--traders-file`.
+- **Replay is honest about delay:** each copy fills at the close of the first candle after the trader's fill, not at the trader's price.
+- **Different from the traders' own results:** they use leverage, shorts and position sizing; the copy is unleveraged, long-only, 5% per position. A trader's profit does not carry over one-for-one.
+- **Coverage limit:** Hyperliquid keeps only each wallet's last 10,000 fills here, so a very active trader's replay may cover fewer days than requested. `report.md` shows the days actually covered.
+- **Read-only:** it calls only `userFillsByTime`, `allMids` and `candleSnapshot` on the public info API. It has no wallet or keys, and a test fails if order or signing code appears. The fee is Hyperliquid's base taker rate (`Config.hl_fee`, 0.045%).
+- Cloud sessions can't reach Hyperliquid. Run it on your Mac, or through the "Paper backtest" workflow's `hl_copy` job.
+
+## Moon bot: paper copy-trading of Solana wallets
+
+`moonbot.py` follows wallets you choose and mirrors their token buys and sells into the paper broker at live Jupiter quotes.
+
+```bash
+python3 moonbot.py --wallets <addr1>,<addr2>          # or --wallets-file wallets.txt
+python3 moonbot.py --wallets-file wallets.txt --min-sol 1 --aggressive
+```
+
+- **Reads only.** It calls two public Solana methods (`getSignaturesForAddress`, `getTransaction`) and Jupiter quotes. It has no wallet and never signs or sends anything; a test fails if that changes.
+- **No chasing old moves.** History that existed when the bot started is skipped; only new trades are copied.
+- **What counts.** A buy is a transaction where the wallet's token balance rises while its SOL, wrapped SOL or stablecoins fall. Buys under `--min-sol` (default 0.5 SOL) are ignored.
+- **Exits.** The paper position closes when the copied wallet sells, or earlier at the ELE-39 stop (2%) or take-profit (4%). Memecoins move far more than 4%, so the take-profit caps big wins; changing it is Nicole's call.
+- **Where to run it.** Your Mac, or the "Moon bot (paper)" GitHub workflow (Actions tab → Run workflow, paste wallet addresses), which runs up to 5.5 hours and posts a scorecard. The public Solana RPC is rate-limited, so keep it to a handful of wallets at a 15-second interval.
+- **Output.** `copied.jsonl` lists every wallet trade seen; `ledger.jsonl` and `summary.json` work like the other bots.
+
+## Aggressive profile (opt-in)
+
+`--aggressive` allows up to 10 open positions instead of 5. Every other ELE-39 limit stays the same, and `summary.json` records `risk_profile` so results are never mixed up. It only has an effect with more than 5 products, since each strategy holds one position per product.
+
+## Solana DEX (Jupiter), paper only
+
+```bash
+python3 paperbot.py --jupiter                                   # JUP:SOL, quotes every 5 s
+python3 paperbot.py --jupiter --products JUP:SOL,JUP:JUP --strategies trend_breakout
+python3 paperbot.py --jupiter --products "JUP:<mint>@<decimals>" # any other token
+```
+
+Prices come from Jupiter's free public quote API (`lite-api.jup.ag/swap/v1/quote`). Each poll asks what a buy and a sell of one paper trade ($50, the 5% position size) would return, so the gap between bid and ask is the real round-trip cost, including pool fees and price impact. The broker then adds only the Solana network fee (`Config.dex_fee`, 0.03%), not the 0.6% exchange fee.
+
+`jupiter_feed.py` only reads quotes. It has no wallet, never builds or sends a transaction, and reads no keys; a unit test fails if swap, signing or key code is ever added. Known tokens: SOL, JUP, BONK, WIF. Keep tokens × 2 ÷ interval under about 1 request a second (the free tier's limit). Jupiter has no price history, so DEX strategies can only be scored by running forward; `--history` backtests stay on Coinbase. Cloud sessions can't reach Jupiter; run it on your Mac or a GitHub Actions runner.
+
+To replay past DEX prices, `--dex-history DAYS` uses free one-minute candles from Solana DEX pools (GeckoTerminal, built from on-chain swaps). Pass `--dex-fee 0.003` so each swap pays a typical pool fee; candles have no spread.
 
 ## Deploy: run the paper bot around the clock
 
@@ -52,6 +123,10 @@ Notes:
 | `ema_cross` | Trend following: buy when the 30-tick EMA crosses above the 120-tick EMA, sell on the cross back |
 | `zscore_reversion` | Mean reversion: buy when price is 2.5σ below its 5-minute mean, exit when it reverts |
 | `trend_breakout` | Long-timeframe, fee-aware: buy a bar close above the prior 20-bar high when above the 50-bar EMA and the channel range is at least 3x round-trip cost; exit below the prior 10-bar low. Bars are 3600 ticks (about 1 hour at 1 tick/s). One strategy at a time, no parallel runs |
+| `liquidity_sweep` | Buy a reclaim after price wicks under a pool of resting lows; target the pool above (see `research/liquidity-sweeps-1m.md`) |
+| `liquidity_magnet` | Ride momentum toward untouched equal highs; exit at the magnet |
+| `rsi_reversion` | Buy when the bar RSI is oversold (default under 25), sell when it recovers (above 55) |
+| `momentum` | Buy when the close is up at least `threshold` over `lookback` bars; sell when momentum turns negative or after `max_hold` bars |
 
 Run **one strategy at a time** on Alpaca (ELE-39); `alpaca_paper.py` defaults to `ema_cross`.
 
