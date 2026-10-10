@@ -13,6 +13,7 @@ Two things live in this repo:
 | `paper-trading` | Anything in `elevated-associates/trading/` |
 | `run-detectors` | Static checks after editing the bridge code |
 | `add-bridge-provider` | Adding a new chat target to the bridge |
+| `grok-x-revenue-builder` | Grok/X research and safe, measurable revenue improvements for Hermes / Elevat AI |
 
 ## Project subagents (`.claude/agents/`)
 
